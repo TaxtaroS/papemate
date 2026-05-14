@@ -68,3 +68,10 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+
+1. Install: npm install 또는 yarn install
+
+2. Scripts: 실행 방법 (npm start)
+
+3. Design Link: 피그마(Figma) 등 디자인 가이드 링크

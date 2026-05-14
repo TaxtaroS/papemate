@@ -1,0 +1,23 @@
+프로젝트 설명 : AI 기반 OWPML 논문 분석 및 시각화 챗봇
+
+버전 정보 : python v - 3.11.x 
+node.js 20.x.x
+react 18.x.x
+
+# 🎓 AI 기반 논문 분석 챗봇 서비스
+이 프로젝트는 대학생들을 위한 논문 Q&A 및 데이터 시각화 서비스입니다.
+
+### 🛠 기술 스택 (Tech Stack)
+- **Frontend**: React
+- **Backend**: Python (FastAPI)
+- **AI**: NLP (OWPML Parsing, RAG)
+- **Cloud**: AWS
+
+### 📂 폴더 구조
+- `ai/`: 논문 파싱 및 RAG 모델 로직
+- `backend/`: API 서버 및 데이터 처리
+- `frontend/`: UI/UX 및 사용자 화면
+
+### 🚀 실행 방법
+1. 저장소 클론: `git clone [주소]`
+2. 각 폴더의 README를 참고하여 환경 세팅 진행
