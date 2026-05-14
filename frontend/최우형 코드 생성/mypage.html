@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>마이페이지 - Paper Mate AI</title>
+
+  <link rel="stylesheet" href="./css/reset.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/mypage.css">
+
+  <link rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+</head>
+<body>
+
+<div class="mypage-wrap">
+
+  <!-- 왼쪽 프로필 패널 -->
+  <aside class="mypage-left">
+
+    <!-- 로고 -->
+    <a href="./index.html" class="mypage-logo">
+      <div class="logo-icon-sm">
+        <i class="fa-solid fa-robot"></i>
+      </div>
+      <div>
+        <div class="mp-logo-sub">ChatBot AI</div>
+        <div class="mp-logo-title">Paper Mate</div>
+      </div>
+    </a>
+
+    <!-- 아바타 -->
+    <div class="mp-avatar">
+      <i class="fa-regular fa-circle-user"></i>
+    </div>
+    <div class="mp-username">user14530</div>
+
+    <!-- 프로필 버튼 -->
+    <button class="mp-btn">프로필 수정</button>
+    <button class="mp-btn">비밀번호 변경</button>
+
+    <!-- 통계 -->
+    <div class="mp-stats">
+      <div class="mp-stat">
+        <span class="mp-stat-num">14</span>
+        <span class="mp-stat-label">프로젝트</span>
+      </div>
+      <div class="mp-stat">
+        <span class="mp-stat-num">20</span>
+        <span class="mp-stat-label">분석 질문</span>
+      </div>
+      <div class="mp-stat">
+        <span class="mp-stat-num">5</span>
+        <span class="mp-stat-label">자료</span>
+      </div>
+      <div class="mp-stat">
+        <span class="mp-stat-num">2</span>
+        <span class="mp-stat-label">참여 팀</span>
+      </div>
+    </div>
+
+    <!-- 회원탈퇴 -->
+    <button class="mp-withdraw-btn">회원탈퇴</button>
+
+  </aside>
+
+  <!-- 오른쪽 콘텐츠 -->
+  <main class="mypage-right">
+
+    <!-- 저장된 시각화 보관함 -->
+    <section class="mp-section">
+
+      <div class="mp-section-header">
+        <h2>저장된 시각화 보관함</h2>
+        <button class="mp-view-all">전체 보기</button>
+      </div>
+
+      <div class="mp-viz-grid">
+
+        <div class="mp-viz-card">
+          <div class="mp-viz-thumb">
+            <i class="fa-solid fa-chart-bar" style="color:#4c8bf5;"></i>
+          </div>
+          <div class="mp-viz-name">정확도 비교 차트</div>
+          <div class="mp-viz-date">2026.05.13</div>
+        </div>
+
+        <div class="mp-viz-card">
+          <div class="mp-viz-thumb">
+            <i class="fa-solid fa-chart-pie" style="color:#0ea5a4;"></i>
+          </div>
+          <div class="mp-viz-name">데이터셋 분포</div>
+          <div class="mp-viz-date">2026.04.22</div>
+        </div>
+
+        <div class="mp-viz-card">
+          <div class="mp-viz-thumb">
+            <i class="fa-solid fa-table" style="color:#62ce6e;"></i>
+          </div>
+          <div class="mp-viz-name">모델 성능 비교표</div>
+          <div class="mp-viz-date">2026.03.04</div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- 최근 분석 히스토리 -->
+    <section class="mp-section">
+
+      <div class="mp-section-header">
+        <h2>최근 분석 히스토리</h2>
+        <button class="mp-view-all">전체 보기</button>
+      </div>
+
+      <div class="mp-history-list">
+
+        <div class="mp-history-item">
+          <i class="fa-regular fa-file-pdf mp-file-icon"></i>
+          <span class="mp-history-name">딥러닝 이미지 분류 연구 비교</span>
+          <span class="mp-history-date">2026.05.13</span>
+        </div>
+
+        <div class="mp-history-item">
+          <i class="fa-regular fa-file-pdf mp-file-icon"></i>
+          <span class="mp-history-name">자연어처리 감정분석 최신 동향</span>
+          <span class="mp-history-date">2026.04.22</span>
+        </div>
+
+        <div class="mp-history-item">
+          <i class="fa-regular fa-file-pdf mp-file-icon"></i>
+          <span class="mp-history-name">강화학습 보상 함수 설계 논문</span>
+          <span class="mp-history-date">2026.03.04</span>
+        </div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+</div>
+
+</body>
+</html>
