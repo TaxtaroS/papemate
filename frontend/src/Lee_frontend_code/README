@@ -1,0 +1,30 @@
+## 📢 [공지] 프론트엔드 레포지토리 구조 개편 및 변환 안내
+
+안녕하세요 팀원 여러분! 
+기존에 개별적으로 작업해 주신 HTML/JS/CSS 소스 코드를 프로젝트 리액트(React) 환경에 맞추어 통합 및 구조 개편을 진행했습니다. 
+
+팀원분들이 작성하신 소중한 원본 코드들이 섞이거나 꼬이는 것을 방지하고, 리액트 빌드 환경의 안정성을 확보하기 위해 아래와 같이 격리 구조로 배치했으니 작업 시 꼭 참고해 주시기 바랍니다.
+
+---
+
+### 📂 개편된 파일 및 폴더 구조
+
+```text
+frontend/
+  ├── public/
+  └── src/
+       ├── team-member1/     (★ 팀원 JS/JSX 기능 코드는 여기 완벽 격리)
+       │    ├── Home.js       <- (기존 index.html + 스크립트 이식)
+       │    ├── Login.js      <- (기존 login.html)
+       │    ├── Analysis.js   <- (기존 analysis.html + analysis.js 이식)
+       │    ├── Dashboard.js  <- (기존 dashboard.html)
+       │    └── Mypage.js     <- (기존 mypage.html)
+       │
+       ├── css/              (★ 모든 스타일 파일은 이 폴더에서 통합 관리)
+       │    ├── reset.css
+       │    ├── layout.css
+       │    ├── sidebar.css
+       │    └── analysis.css
+       │
+       ├── App.js            (각 페이지 컴포넌트를 라우팅하는 메인 파일)
+       └── index.js
