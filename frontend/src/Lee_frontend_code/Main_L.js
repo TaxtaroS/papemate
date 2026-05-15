@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import styled from 'styled-components';
 import { palette } from '../shared/palette';
-import { Link } from 'react-router-dom';
+import AuthModal_L from './AuthModal_L';
 
 const Container = styled.div`
   display: flex;
@@ -9,8 +9,7 @@ const Container = styled.div`
   background-color: white;
 `;
 
-/** 1. NavLink 정의 추가 (에러 방지) */
-const NavLink = styled(Link)`
+const NavLink = styled.span`
   text-decoration: none;
   color: ${palette.gray[8]};
   cursor: pointer;
@@ -24,7 +23,6 @@ const MainContent = styled.main`
   align-items: center;
   padding: 40px;
   position: relative;
-  /* 하단 입력창 영역 확보를 위해 여백 추가 */
   padding-bottom: 180px; 
   overflow-y: auto;
 `;
@@ -53,16 +51,14 @@ const CardGrid = styled.div`
 `;
 
 const FeatureCard = styled.div`
-  background-color: #FFFDE7; /* 사진 속 연노랑 느낌 */
+  background-color: #FFFDE7;
   padding: 20px;
   border-radius: 15px;
   display: flex;
   gap: 15px;
   border: 1px solid #FFF9C4;
   transition: transform 0.2s;
-  
-  &:hover { transform: translateY(-3px); } /* 마우스 올릴 때 효과 */
-  
+  &:hover { transform: translateY(-3px); }
   .icon { font-size: 24px; }
   h4 { margin: 0 0 5px 0; font-size: 16px; font-weight: bold; }
   span { font-size: 13px; color: ${palette.gray[6]}; line-height: 1.4; }
@@ -77,19 +73,19 @@ const InputArea = styled.div`
   flex-direction: column;
   align-items: center;
   gap: 15px;
-  background: white; /* 뒤에 카드가 비치지 않게 배경 추가 */
+  background: white;
 `;
 
 const FileTagWrapper = styled.div`
   display: flex;
   gap: 10px;
-  flex-wrap: wrap; /* 파일이 많아지면 다음 줄로 */
+  flex-wrap: wrap;
 `;
 
 const FileTag = styled.div`
   background-color: ${palette.gray[1]};
   padding: 6px 14px;
-  border-radius: 20px; /* 좀 더 둥글게 */
+  border-radius: 20px;
   font-size: 12px;
   display: flex;
   align-items: center;
@@ -107,7 +103,6 @@ const ChatInputWrapper = styled.div`
   align-items: center;
   background: white;
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  
   input {
     flex: 1;
     border: none;
@@ -117,13 +112,24 @@ const ChatInputWrapper = styled.div`
   }
 `;
 
-function MainPage() {
+function Main_L() {
+  // 1. 모달의 열림 상태와 초기 모드('login' 혹은 'signup')를 관리합니다.
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [initialAuthMode, setInitialAuthMode] = useState('login');
+
+  // 2. 버튼 클릭 시 어떤 모드로 열지 설정하고 모달을 띄우는 함수입니다.
+  const handleOpenAuth = (mode) => {
+    setInitialAuthMode(mode);
+    setIsAuthOpen(true);
+  };
+
   return (
     <Container>
       <MainContent>
         <Header>
-          <NavLink to="/login">login</NavLink>
-          <span style={{cursor:'pointer'}}>signup</span>
+          {/* 3. 클릭 시 각각 'login', 'signup' 정보를 넘겨줍니다. */}
+          <NavLink onClick={() => handleOpenAuth('login')}>login</NavLink>
+          <NavLink onClick={() => handleOpenAuth('signup')}>signup</NavLink>
         </Header>
 
         <HeroSection>
@@ -173,9 +179,17 @@ function MainPage() {
             <button style={{background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', marginLeft: 10}}>➡️</button>
           </ChatInputWrapper>
         </InputArea>
+
+        {/* 4. 모달을 렌더링할 때 initialMode를 함께 전달합니다. */}
+        {isAuthOpen && (
+          <AuthModal_L 
+            initialMode={initialAuthMode} 
+            onClose={() => setIsAuthOpen(false)} 
+          />
+        )}
       </MainContent>
     </Container>
   );
 }
 
-export default MainPage;
+export default Main_L;
