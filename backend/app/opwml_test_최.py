@@ -1,7 +1,7 @@
 # ----streamlit 에서 바로 사용해보기 위해 만든 임시파일입니다.
 # 쥬피터 노트북이나 코랩에서 바로 실행해 보실수 있어요.
 # pip부터 설치 후 초기화 해주시고, 구글 api-key 생성하시면 됩니다.
-
+# opwml test용 코드 입니다
 
 
 pip install streamlit pypdf pillow pytesseract pandas opencv-python
