@@ -13,6 +13,7 @@ export const ModalOverlay = styled.div`
   display: ${props => props.$show ? 'flex' : 'none'}; 
   justify-content: center; align-items: center; z-index: 999;
   backdrop-filter: blur(2px); 
+  padding: 16px;
 `;
 
 /* ── 닫기 X 버튼 (선명한 Red 반영) ── */
@@ -26,7 +27,7 @@ export const CloseIconButton = styled.button`
 
 /* ── 비로그인 상태에서 메뉴 클릭 시 유도하는 [추천 모달 컨테이너] ── */
 export const RecommendBox = styled.div`
-  width: 340px; background: white; border-radius: 16px; overflow: hidden;
+  width: min(340px, 100%); background: white; border-radius: 16px; overflow: hidden;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid ${palette.slate[2]}; position: relative;
 `;
 
@@ -62,7 +63,7 @@ export const RecommendBody = styled.div`
 
 /* ── 🔐 소셜 + 일반 통합 로그인/회원가입 모달 폼 본체 ── */
 export const FigAuthBox = styled.div`
-  width: 360px; background: white; border-radius: 16px; padding: 40px 28px 32px 28px;
+  width: min(360px, 100%); background: white; border-radius: 16px; padding: 40px 28px 32px 28px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.08); border: 1px solid ${palette.slate[2]}; position: relative;
   display: flex; flex-direction: column; box-sizing: border-box;
 
@@ -76,30 +77,6 @@ export const FigAuthBox = styled.div`
   }
 
   .popup-title { font-size: 16px; font-weight: 800; color: ${palette.slate[8]}; text-align: center; margin: 0 0 16px 0; }
-  .social-list { display: flex; flex-direction: column; gap: 10px; width: 100%; }
-
-  .social-btn {
-    width: 100%; display: flex; align-items: center; padding: 12px 16px; border-radius: 8px; 
-    font-size: 13.5px; font-weight: 700; cursor: pointer; border: none; box-sizing: border-box; transition: all 0.15s;
-    
-    .icon-wrap { width: 20px; display: flex; justify-content: center; font-size: 16px; margin-right: 12px; }
-    .btn-text { flex: 1; text-align: center; margin-right: 20px; }
-
-    &.gmail { 
-      background: ${palette.google[5]}; border: 1px solid ${palette.slate[0]}; color: #ffffff; 
-      box-shadow: 0 4px 6px -1px rgba(26, 115, 232, 0.12);
-      &:hover { background: ${palette.google[6]}; }
-      .icon-wrap { color: #ffffff; font-weight: 800; } 
-    }
-    &.kakao { background: ${palette.kakao}; border: 1px solid #fdd835; color: #191919; &:hover { background: #fada0a; } .icon-wrap { color: #191919; } }
-    &.naver { background: ${palette.naver}; border: 1px solid #02b14f; color: white; &:hover { background: #02b343; } .icon-wrap { color: white; font-weight: 900; } }
-  }
-
-  .divider {
-    display: flex; align-items: center; margin: 24px 0; color: ${palette.slate[4]}; font-size: 12px; font-weight: 700;
-    &::before, &::after { content: ""; flex: 1; height: 1px; background: ${palette.slate[2]}; }
-    span { padding: 0 12px; }
-  }
 
   .input-group {
     display: flex; flex-direction: column; gap: 10px; width: 100%;
@@ -125,6 +102,19 @@ export const FigAuthBox = styled.div`
   .toggle-guide {
     font-size: 12.5px; color: ${palette.slate[5]}; font-weight: 600; text-align: center; width: 100%;
     button { background: none; border: none; color: ${palette.teal[5]}; cursor: pointer; font-weight: 700; margin-left: 6px; font-size: 12.5px; &:hover { text-decoration: underline; } }
+  }
+
+  @media (max-width: 420px) {
+    padding: 34px 20px 26px 20px;
+    border-radius: 12px;
+
+    .social-btn {
+      padding: 11px 12px;
+
+      .btn-text {
+        margin-right: 0;
+      }
+    }
   }
 `;
 
@@ -175,23 +165,6 @@ function AuthModal({ modalMode, setModalMode, formData, onInputChange, onLoginSu
           {modalMode === 'login' ? (
             <>
               <h3 className="popup-title">로그인</h3>
-              <div className="social-list">
-                <button className="social-btn gmail">
-                  <span className="icon-wrap"><i className="fa-brands fa-google"></i></span>
-                  <span className="btn-text">Google로 계속하기</span>
-                </button>
-                <button className="social-btn kakao">
-                  <span className="icon-wrap"><i className="fa-solid fa-comment"></i></span>
-                  <span className="btn-text">카카오로 계속하기</span>
-                </button>
-                <button className="social-btn naver">
-                  <span className="icon-wrap"><i className="fa-solid fa-n"></i></span>
-                  <span className="btn-text">네이버로 계속하기</span>
-                </button>
-              </div>
-
-              <div className="divider"><span>또는</span></div>
-
               <div className="input-group">
                 <input name="id" placeholder="아이디" value={formData?.id || ''} onChange={onInputChange} />
                 <input name="pw" type="password" placeholder="비밀번호" value={formData?.pw || ''} onChange={onInputChange} />
@@ -212,23 +185,6 @@ function AuthModal({ modalMode, setModalMode, formData, onInputChange, onLoginSu
           ) : (
             <>
               <h3 className="popup-title">회원가입</h3>
-              <div className="social-list">
-                <button className="social-btn gmail">
-                  <span className="icon-wrap"><i className="fa-brands fa-google"></i></span>
-                  <span className="btn-text">Gmail로 시작하기</span>
-                </button>
-                <button className="social-btn kakao">
-                  <span className="icon-wrap"><i className="fa-solid fa-comment"></i></span>
-                  <span className="btn-text">카카오톡으로 시작하기</span>
-                </button>
-                <button className="social-btn naver">
-                  <span className="icon-wrap"><i className="fa-solid fa-n"></i></span>
-                  <span className="btn-text">네이버로 시작하기</span>
-                </button>
-              </div>
-
-              <div className="divider"><span>또는 일반 가입</span></div>
-
               <div className="input-group">
                 <input name="id" placeholder="사용할 아이디" value={formData?.id || ''} onChange={onInputChange} />
                 <input name="pw" type="password" placeholder="비밀번호" value={formData?.pw || ''} onChange={onInputChange} />

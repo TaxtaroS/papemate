@@ -80,16 +80,7 @@ const ChatInputRow = styled.section`
 function ChatBox() {
   return (
     <ChatBoxWrapper>
-      <UploadedFilesWrapper>
-        <div className="file-tag">
-          <i className="fa-solid fa-file-pdf"></i> main123.pdf 
-          <button className="file-close"><i className="fa-solid fa-xmark"></i></button>
-        </div>
-        <div className="file-tag">
-          <i className="fa-solid fa-file-lines"></i> main123.hwp 
-          <button className="file-close"><i className="fa-solid fa-xmark"></i></button>
-        </div>
-      </UploadedFilesWrapper>
+      <UploadedFilesWrapper />
 
       <ChatInputRow>
         <button className="plus-btn"><i className="fa-solid fa-plus"></i></button>

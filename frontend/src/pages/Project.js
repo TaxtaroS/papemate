@@ -1,146 +1,157 @@
-import React, { useState } from 'react';
-import styled from 'styled-components';
-import { palette } from '../shared/palette';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ProjectsContainer,
+  HeaderSection,
+  SectionTitleRow,
+  VisualSection,
+  VisualBoxContainer,
+  VisualCard,
+  ProjectGrid,
+  ProjectCard,
+  EmptyCard,
+  ModalOverlay,
+  ModalContent,
+  DrawerBackdrop,
+  DrawerContainer
+} from './styles/Project.styles';
+import {
+  getProjectsKey,
+  getRecentConversationsKey,
+  getSharedRoomKey,
+  getShareRoomKey,
+  readJson,
+  SHARED_PROJECTS_KEY,
+  writeJson,
+} from '../utils/storageKeys';
+
+// Project 페이지에서 쓰는 주요 라이브러리/기능
+// - React Hooks: useState로 프로젝트/모달 상태 관리, useMemo로 시각화 목록 계산
+// - styled-components: ./styles/Project.styles.js에서 카드/모달/드로어 UI를 관리
+// - localStorage 유틸: 계정별 프로젝트와 초대코드 공유 인덱스를 저장
+
+const defaultProjects = [];
+
+const legacyDummyProjectTitles = [
+  '이미지 분류',
+  '자연어 처리',
+  '논문 분석 처리',
+  '딥러닝 이미지 분류 연구 비교',
+];
+
+const sanitizeProjects = (projects) =>
+  projects.filter((project) => !legacyDummyProjectTitles.includes(project.title));
+
+// 수동으로 새 프로젝트를 만들 때도 초대코드가 있어야 공유 페이지에서 바로 참여할 수 있습니다.
+const createInviteCode = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({ length: 7 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+};
+
+// 현재 로그인 계정의 프로젝트 목록을 localStorage에서 읽습니다.
+// 저장값이 없거나 깨져 있으면 빈 배열로 시작합니다.
+const loadProjects = () => {
+  try {
+    const saved = localStorage.getItem(getProjectsKey());
+    if (!saved) return defaultProjects;
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? sanitizeProjects(parsed) : defaultProjects;
+  } catch {
+    return defaultProjects;
+  }
+};
+
+// 프로젝트 삭제 시 한 곳만 지우면 화면마다 찌꺼기가 남습니다.
+// 그래서 프로젝트 목록, 최근대화, 공유 타임라인, 초대코드 인덱스를 함께 정리합니다.
+const deleteProjectEverywhere = (projectId) => {
+  const projectsKey = getProjectsKey();
+  const recentConversationsKey = getRecentConversationsKey();
+  const shareRoomKey = getShareRoomKey();
+  const savedProjects = readJson(projectsKey, []);
+  const deletedProject = Array.isArray(savedProjects) ? savedProjects.find((project) => project.id === projectId) : null;
+  if (Array.isArray(savedProjects)) {
+    writeJson(projectsKey, savedProjects.filter((project) => project.id !== projectId));
+  }
+
+  const sharedProjects = readJson(SHARED_PROJECTS_KEY, []);
+  if (Array.isArray(sharedProjects)) {
+    writeJson(
+      SHARED_PROJECTS_KEY,
+      sharedProjects.filter((project) => project.id !== projectId && project.inviteCode !== deletedProject?.inviteCode)
+    );
+  }
+
+  const savedRecents = readJson(recentConversationsKey, []);
+  if (Array.isArray(savedRecents)) {
+    writeJson(
+      recentConversationsKey,
+      savedRecents.filter((item) => item.projectId !== projectId && item.id !== projectId)
+    );
+  }
+
+  const savedRoom = readJson(shareRoomKey, null);
+  if (savedRoom) {
+    writeJson(shareRoomKey, {
+      ...savedRoom,
+      loadedProjectIds: (savedRoom.loadedProjectIds || []).filter((id) => id !== projectId),
+      comments: savedRoom.comments || [],
+      members: savedRoom.members || [],
+    });
+  }
+
+  if (deletedProject?.inviteCode) {
+    writeJson(getSharedRoomKey(deletedProject.inviteCode), {
+      inviteCode: deletedProject.inviteCode,
+      joinedCode: deletedProject.inviteCode,
+      loadedProjectIds: [],
+      comments: [],
+      members: [],
+    });
+  }
+};
+
+// 초대코드 복사용 브라우저 클립보드 helper입니다.
+const copyText = async (text) => {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+  }
+  window.alert(`초대코드가 복사되었습니다: ${text}`);
+};
+
 
 /* ==========================================================================
    🎨 1. 공통 및 메인 레이아웃 스타일
    ========================================================================== */
-const ProjectsContainer = styled.div`
-  flex: 1; padding: 40px 52px; background: #ffffff; overflow-y: auto; box-sizing: border-box;
-`;
 
-const HeaderSection = styled.div`
-  margin-bottom: 32px;
-  h2 { font-size: 22px; font-weight: 800; color: #1e293b; margin: 0; }
-`;
 
-const SectionTitleRow = styled.div`
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; 
-  h3 { font-size: 18px; font-weight: 800; color: #1e293b; margin: 0; } 
-  
-  .btn-group {
-    display: flex; gap: 10px;
-  }
-
-  .sub-btn { 
-    background: #ffffff; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 6px; 
-    font-weight: 700; color: #64748b; font-size: 12px; cursor: pointer; transition: all 0.15s;
-    &:hover { background: #f8fafc; color: #1e293b; }
-  } 
-
-  .primary-btn {
-    background: #0ea5a4; color: #ffffff; border: none; border-radius: 8px;
-    padding: 10px 18px; font-size: 14px; font-weight: 700; cursor: pointer;
-    display: flex; align-items: center; gap: 6px; transition: background 0.15s;
-    &:hover { background: #0d9493; }
-  }
-`;
 
 /* ==========================================================================
    🎨 2. 시각화 보관함 및 프로젝트 카드 스타일
    ========================================================================== */
-const VisualSection = styled.div` margin-bottom: 48px; `;
-const VisualBoxContainer = styled.div` display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; `;
 
-const VisualCard = styled.div`
-  border: 1px solid #e2e8f0; border-radius: 12px; background: white; padding: 16px;
-  cursor: pointer; transition: all 0.2s ease-in-out; box-sizing: border-box;
-  position: relative; /* 💡 삭제 버튼 위치의 기준점 */
 
-  &:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04); border-color: #cbd5e1; }
-
-  /* 💡 삭제 버튼: 평소엔 투명하다가 호버 시 등장 */
-  .delete-visual-btn {
-    position: absolute; top: 12px; right: 12px;
-    background: rgba(255, 255, 255, 0.9); border: 1px solid #e2e8f0;
-    width: 28px; height: 28px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    color: #94a3b8; font-size: 12px; cursor: pointer;
-    opacity: 0; transition: all 0.2s; z-index: 10;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    
-    &:hover { color: #e74c3c; border-color: #fca5a5; background: #fef2f2; }
-  }
-
-  &:hover .delete-visual-btn { opacity: 1; }
-
-  .mock-img { 
-    height: 80px; background: #f1f5f9; border-radius: 8px; margin-bottom: 12px; 
-    display: flex; align-items: center; justify-content: center; 
-    font-size: 24px; color: #0ea5a4; 
-  }
-  h4 { margin: 0 0 6px 0; font-size: 14px; font-weight: 700; color: #1e293b; }
-  span { font-size: 11.5px; color: #94a3b8; font-weight: 600; }
-`;
-
-const ProjectGrid = styled.div` display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; `;
-const ProjectCard = styled.div`
-  background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px;
-  display: flex; flex-direction: column; position: relative; height: 180px; box-sizing: border-box;
-  cursor: pointer; transition: all 0.2s ease-in-out;
-  &:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04); border-color: #cbd5e1; }
-  
-  .tag { align-self: flex-start; background: #f1f5f9; color: #475569; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 12px; margin-bottom: 12px; &.hwp { background: #e6f4f4; color: #0ea5a4; } }
-  h3 { font-size: 16px; font-weight: 800; color: #1e293b; margin: 0 0 6px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%; }
-  .title-input { font-size: 16px; font-weight: 800; color: #1e293b; margin: 0 0 6px 0; padding: 2px 6px; border: 1px solid #0ea5a4; border-radius: 4px; outline: none; width: 80%; box-sizing: border-box; font-family: inherit; background: #f8fafc; }
-  .date { font-size: 11px; color: #94a3b8; font-weight: 700; margin-bottom: auto; }
-  .card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; padding-top: 12px; margin-top: 12px; }
-  .meta-info { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #64748b; font-weight: 700; i { color: #94a3b8; } }
-  .action-btns { display: flex; gap: 10px; button { background: none; border: none; font-size: 15px; color: #94a3b8; cursor: pointer; transition: color 0.1s; &.edit-icon-btn:hover { color: #1e293b; } &.delete-icon-btn:hover { color: #e74c3c; } } }
-  .profile-thumbnail { position: absolute; right: 24px; top: 24px; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; i { font-size: 32px; color: ${palette.slate[4]}; } }
-`;
-const EmptyCard = styled.div`
-  background: #ffffff; border: 2px dashed #cbd5e1; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 180px; cursor: pointer; color: #94a3b8; font-weight: 700; font-size: 13.5px; gap: 6px; box-sizing: border-box; transition: all 0.2s ease-in-out;
-  &:hover { transform: translateY(-2px); border-color: #0ea5a4; color: #0ea5a4; }
-`;
 
 /* ==========================================================================
    🎨 3. 전체보기 모달 (View All Modal) 스타일
    ========================================================================== */
-const ModalOverlay = styled.div`
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(2px);
-  display: flex; justify-content: center; align-items: center; z-index: 900;
-`;
-const ModalContent = styled.div`
-  background: #ffffff; width: 800px; max-height: 85vh; border-radius: 16px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; overflow: hidden;
-  .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 24px 32px; border-bottom: 1px solid #e2e8f0; h3 { margin: 0; font-size: 20px; font-weight: 800; color: #1e293b; } button { background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer; transition: 0.15s; &:hover { color: #1e293b; } } }
-  .modal-body { padding: 32px; overflow-y: auto; flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-`;
 
 /* ==========================================================================
    🎨 4. 사이드 드로어 (Side Drawer) 스타일
    ========================================================================== */
-const DrawerBackdrop = styled.div`
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.15); backdrop-filter: blur(1px); display: ${props => props.$show ? 'block' : 'none'}; z-index: 1000;
-`;
-const DrawerContainer = styled.div`
-  position: fixed; top: 0; right: ${props => props.$show ? '0' : '-460px'}; width: 420px; height: 100vh; background: #ffffff; box-shadow: -10px 0 30px -5px rgba(0, 0, 0, 0.08); border-left: 1px solid #e2e8f0; z-index: 1001; transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1); padding: 40px 32px; box-sizing: border-box; display: flex; flex-direction: column;
-  .drawer-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; .title-wrap { h3 { font-size: 18px; font-weight: 800; color: #1e293b; margin: 0 0 6px 0; } span { font-size: 12px; color: #94a3b8; font-weight: 600; } } .close-btn { background: none; border: none; font-size: 18px; color: #94a3b8; cursor: pointer; &:hover { color: #1e293b; } } }
-  .drawer-body { flex: 1; overflow-y: auto; .visual-preview { width: 100%; height: 180px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 24px; display: flex; align-items: center; justify-content: center; font-size: 52px; color: #0ea5a4; } .info-section { margin-bottom: 24px; h5 { font-size: 13px; font-weight: 800; color: #475569; margin: 0 0 8px 0; } p { font-size: 13.5px; color: #334155; line-height: 1.6; margin: 0; font-weight: 500; } } .details-list { background: #f8fafc; border-radius: 8px; padding: 16px; margin-top: 16px; display: flex; flex-direction: column; gap: 12px; .detail-item { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 600; .lbl { color: #64748b; } .val { color: #1e293b; font-weight: 700; } } } }
-  .drawer-footer { margin-top: auto; padding-top: 20px; border-top: 1px solid #f1f5f9; .action-btn { width: 100%; background: #1e293b; color: white; border: none; padding: 12px; border-radius: 8px; font-size: 13.5px; font-weight: 700; cursor: pointer; &:hover { background: #0f172a; } } }
-`;
 
 /* ==========================================================================
    📦 메인 컴포넌트 로직
    ========================================================================== */
-function Projects() {
-  // 💡 1. 프로젝트 상태
-  const [projects, setProjects] = useState([
-    { id: 1, type: 'PDF x 3', title: '이미지 분류', date: '2026.05.04', charts: 2, isHwp: false },
-    { id: 2, type: 'hwp', title: '자연어 처리', date: '2026.05.04', charts: 2, isHwp: true },
-    { id: 3, type: 'PDF', title: '논문 분석 처리', date: '2026.05.04', charts: 0, isHwp: false },
-  ]);
-
-  // 💡 2. 저장된 시각화 데이터를 useState 상태로 변경 (최대 10개 관리를 위함)
-  const [visuals, setVisuals] = useState([
-    { id: 101, title: '정확도 비교 차트', date: '2026.05.13', icon: 'fa-chart-column', desc: '모델 성능 모니터링 결과물입니다.', details: [ {lbl: '데이터 모델', val: 'LangChain RAG'}, {lbl: '정확도', val: '94.2%'} ] },
-    { id: 102, title: '데이터셋 분포', date: '2026.04.22', icon: 'fa-chart-pie', desc: '포맷별 정제 데이터 통계량입니다.', details: [ {lbl: '총 파일 수', val: '24개'}, {lbl: 'PDF 문서', val: '65%'} ] },
-    { id: 103, title: '모델 성능 비교표', date: '2026.03.04', icon: 'fa-table-cells', desc: '응답 지연 시간(Latency) 비교 테이블입니다.', details: [ {lbl: 'Vector DB', val: 'Pinecone'}, {lbl: 'Latency', val: '1.2s'} ] },
-    { id: 104, title: '토큰 소모량 추이', date: '2026.02.15', icon: 'fa-chart-line', desc: '일별 API 토큰 사용량 트렌드 그래프입니다.', details: [ {lbl: '최대 사용일', val: '02.12'}, {lbl: '총 소모량', val: '142k'} ] },
-    { id: 105, title: '사용자 질의 패턴', date: '2026.01.28', icon: 'fa-cloud', desc: '가장 많이 질문된 키워드 워드클라우드입니다.', details: [ {lbl: 'Top 키워드', val: '할루시네이션'}, {lbl: '분석 문서 수', val: '88건'} ] },
-  ]);
+function Projects({ onProjectRestore }) {
+  // 프로젝트 상태: Analysis 페이지에서 등록한 프로젝트도 같은 저장소에서 불러옵니다.
+  const [projects, setProjects] = useState(loadProjects);
 
   const [editingProjectId, setEditingProjectId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -148,49 +159,170 @@ function Projects() {
   const [selectedVisual, setSelectedVisual] = useState(null);
   const [isViewAllOpen, setIsViewAllOpen] = useState(false);
 
+  // 시각화 보관함은 별도 저장소가 아니라 각 project.visuals를 모아서 보여줍니다.
+  // 이렇게 해야 "이미지는 같은 프로젝트명으로 저장"되는 구조가 됩니다.
+  const visuals = useMemo(
+    () =>
+      projects.flatMap((project) =>
+        (project.visuals || []).map((visual) => ({
+          ...visual,
+          projectId: project.id,
+          projectTitle: visual.projectTitle || project.title,
+        }))
+      ),
+    [projects]
+  );
+
+  // projects 상태가 바뀔 때마다 계정별 프로젝트 저장소에 반영합니다.
+  // 동시에 초대코드 입력으로 찾을 수 있도록 sharedProjects 인덱스도 갱신합니다.
+  useEffect(() => {
+    localStorage.setItem(getProjectsKey(), JSON.stringify(projects));
+
+    const sharedProjects = readJson(SHARED_PROJECTS_KEY, []);
+    const ownProjectsWithInvite = projects.filter((project) => project.inviteCode);
+    if (ownProjectsWithInvite.length === 0) return;
+
+    const ownIds = new Set(ownProjectsWithInvite.map((project) => project.id));
+    const ownInviteCodes = new Set(ownProjectsWithInvite.map((project) => project.inviteCode));
+    const otherSharedProjects = Array.isArray(sharedProjects)
+      ? sharedProjects.filter((project) => !ownIds.has(project.id) && !ownInviteCodes.has(project.inviteCode))
+      : [];
+
+    writeJson(SHARED_PROJECTS_KEY, [...ownProjectsWithInvite, ...otherSharedProjects].slice(0, 100));
+  }, [projects]);
+
+  // 다른 페이지에서 프로젝트를 저장/삭제하면 CustomEvent로 알려주므로,
+  // 프로젝트 페이지가 열려 있는 상태에서도 목록을 즉시 새로 읽습니다.
+  useEffect(() => {
+    const syncProjects = (event) => {
+      if (event.detail?.key && event.detail.key !== getProjectsKey()) return;
+      setProjects(loadProjects());
+    };
+
+    window.addEventListener('storage', syncProjects);
+    window.addEventListener('papermate-storage-updated', syncProjects);
+    return () => {
+      window.removeEventListener('storage', syncProjects);
+      window.removeEventListener('papermate-storage-updated', syncProjects);
+    };
+  }, []);
+
   /* --- 프로젝트 핸들러 --- */
+  // 새 프로젝트는 아직 문서/대화가 없는 빈 작업 공간입니다.
+  // 이후 프로젝트 카드를 누르면 분석 페이지에서 이어서 작업할 수 있습니다.
   const handleAddProject = (e) => {
     e.preventDefault();
     if (projects.length >= 10) { alert("프로젝트는 최대 10개까지 생성 가능합니다."); return; }
-    setProjects([...projects, { id: Date.now(), type: 'New', title: `새 프로젝트 ${projects.length + 1}`, date: new Date().toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1), charts: 0, isHwp: false }]);
+    const today = new Date().toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1);
+    setProjects([...projects, {
+      id: `project-${Date.now()}`,
+      type: 'New',
+      title: `새 프로젝트 ${projects.length + 1}`,
+      updatedAt: today,
+      date: today,
+      charts: 0,
+      isHwp: false,
+      inviteCode: createInviteCode(),
+      files: [],
+      thread: [],
+      visuals: [],
+    }]);
   };
 
-  const handleDeleteProject = (e, id) => {
+  // 삭제는 되돌릴 수 없는 작업이라 두 번 확인합니다.
+  const handleDeleteProject = (e, project) => {
     e.preventDefault(); e.stopPropagation();
-    if(window.confirm("이 프로젝트를 정말 삭제하시겠습니까?")) {
-      setProjects(projects.filter(project => project.id !== id));
-      if (editingProjectId === id) setEditingProjectId(null);
-    }
+    const firstConfirm = window.confirm(`"${project.title}" 프로젝트를 정말 삭제하시겠습니까?`);
+    if (!firstConfirm) return;
+
+    const secondConfirm = window.confirm(
+      '삭제하면 이 프로젝트의 저장 문서, 파일 목록, 분석 대화, 공유 타임라인 연결, 최근대화 기록이 모두 영구 삭제됩니다. 계속 진행할까요?'
+    );
+    if (!secondConfirm) return;
+
+    deleteProjectEverywhere(project.id);
+    setProjects((prev) => prev.filter((item) => item.id !== project.id));
+    if (editingProjectId === project.id) setEditingProjectId(null);
+    window.alert('프로젝트가 영구 삭제되었습니다. 저장된 문서, 파일 목록, 분석 기록, 최근대화 목록에서도 삭제되었습니다.');
   };
 
   const handleEditClick = (e, project) => { e.preventDefault(); e.stopPropagation(); setEditingProjectId(project.id); setEditTitle(project.title); };
-  const handleTitleSave = () => { if (!editTitle.trim()) return; setProjects(projects.map(p => p.id === editingProjectId ? { ...p, title: editTitle.trim(), date: new Date().toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1) } : p)); setEditingProjectId(null); };
+  const handleTitleSave = () => { if (!editTitle.trim()) return; const today = new Date().toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1); setProjects(projects.map(p => p.id === editingProjectId ? { ...p, title: editTitle.trim(), updatedAt: today, date: today } : p)); setEditingProjectId(null); };
   const handleKeyDown = (e) => { if (e.key === 'Enter') handleTitleSave(); else if (e.key === 'Escape') setEditingProjectId(null); };
+  // 프로젝트 카드를 클릭하면 복원이 아니라 "이어서 작업" 데이터로 Analysis 페이지에 넘깁니다.
+  const handleProjectRestore = (project) => {
+    if (!onProjectRestore) return;
+    const thread = Array.isArray(project.thread) ? project.thread : [];
+    const lastUserMessage = [...thread].reverse().find((item) => item.role === 'user');
+    const lastAiMessage = [...thread].reverse().find((item) => item.role === 'ai' || item.role === 'asset');
 
-  /* 💡 --- 시각화 데이터 핸들러 --- */
-  const handleAddVisualTest = (e) => {
-    e.preventDefault();
-    if (visuals.length >= 10) {
-      alert("시각화 보관함은 최대 10개까지만 저장할 수 있습니다. 기존 데이터를 삭제해주세요.");
+    onProjectRestore({
+      projectId: project.id,
+      q: lastUserMessage?.text || project.title,
+      a: lastAiMessage?.text || '저장된 프로젝트를 이어서 작업합니다.',
+      projectTitle: project.title,
+      inviteCode: project.inviteCode,
+      files: project.files || [],
+      thread,
+    });
+  };
+  const handleInviteCopy = (event, inviteCode) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!inviteCode) {
+      window.alert('복사할 초대코드가 없습니다.');
       return;
     }
-    const newVisual = { 
-      id: Date.now(), title: `새로운 차트 ${visuals.length + 1}`, date: new Date().toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1), 
-      icon: 'fa-chart-area', desc: '새로 저장된 시각화 데이터입니다.', details: [ {lbl: '상태', val: 'New'} ] 
-    };
-    setVisuals([newVisual, ...visuals]); // 최신 항목이 맨 앞으로 오게 추가
+    copyText(inviteCode);
   };
 
+  // 시각화 항목 삭제는 프로젝트 자체를 삭제하지 않고 project.visuals 안의 항목만 제거합니다.
   const handleDeleteVisual = (e, id) => {
     e.preventDefault(); 
     e.stopPropagation(); // 카드 전체 클릭(사이드 드로어 열림) 이벤트 방지
     if(window.confirm("이 시각화 데이터를 삭제하시겠습니까?")) {
-      setVisuals(visuals.filter(visual => visual.id !== id));
+      setProjects((prev) =>
+        prev.map((project) => {
+          const nextVisuals = (project.visuals || []).filter((visual) => visual.id !== id);
+          return { ...project, visuals: nextVisuals, charts: nextVisuals.length };
+        })
+      );
       // 만약 현재 삭제하는 카드의 드로어가 열려있다면 같이 닫아줌
       if (selectedVisual && selectedVisual.id === id) {
         setSelectedVisual(null);
       }
     }
+  };
+
+  // 실제 차트 라이브러리 도입 전 단계의 미리보기 렌더러입니다.
+  // kind 값(table/chart/graph)에 따라 다른 형태의 CSS 미니 시각화를 보여줍니다.
+  const renderVisualPreview = (visual) => {
+    if (visual.kind === 'table') {
+      return (
+        <div className="mini-visual table">
+          <span></span><span></span><span></span>
+          <span></span><span></span><span></span>
+          <span></span><span></span><span></span>
+        </div>
+      );
+    }
+
+    if (visual.kind === 'graph') {
+      return (
+        <div className="mini-visual graph">
+          <i></i><i></i><i></i><i></i>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mini-visual chart">
+        <span style={{ height: '34%' }}></span>
+        <span style={{ height: '68%' }}></span>
+        <span style={{ height: '48%' }}></span>
+        <span style={{ height: '82%' }}></span>
+      </div>
+    );
   };
 
   return (
@@ -209,16 +341,18 @@ function Projects() {
         </SectionTitleRow>
         
         <VisualBoxContainer>
-          {visuals.slice(0, 3).map((visual) => (
+          {visuals.length === 0 ? (
+            <EmptyCard as="div"><span>저장된 시각화가 없습니다.</span></EmptyCard>
+          ) : visuals.slice(0, 3).map((visual) => (
             <VisualCard key={visual.id} onClick={() => setSelectedVisual(visual)}>
               {/* 💡 카드 우측 상단 삭제 버튼 배치 */}
               <button className="delete-visual-btn" onClick={(e) => handleDeleteVisual(e, visual.id)} title="시각화 데이터 삭제">
                 <i className="fa-solid fa-trash"></i>
               </button>
               
-              <div className="mock-img"><i className={`fa-solid ${visual.icon}`}></i></div>
+              <div className="mock-img">{renderVisualPreview(visual)}</div>
               <h4>{visual.title}</h4>
-              <span>{visual.date}</span>
+              <span>{visual.projectTitle} · {visual.date}</span>
             </VisualCard>
           ))}
         </VisualBoxContainer>
@@ -230,24 +364,35 @@ function Projects() {
         <button type="button" className="primary-btn" onClick={handleAddProject}>+ 새 프로젝트...</button>
       </SectionTitleRow>
       <ProjectGrid>
-        {projects.map((project) => (
-          <ProjectCard key={project.id}>
-            <div className={`tag ${project.isHwp ? 'hwp' : ''}`}>{project.type}</div>
+        {projects.length === 0 ? (
+          <EmptyCard onClick={handleAddProject}><span className="plus-icon">+</span><span>새 프로젝트 추가</span></EmptyCard>
+        ) : projects.map((project) => (
+          <ProjectCard key={project.id} onClick={() => handleProjectRestore(project)}>
+            <div className={`tag ${project.isHwp ? 'hwp' : ''}`}>{project.type || 'New'}</div>
             {editingProjectId === project.id ? (
               <input type="text" className="title-input" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} onBlur={handleTitleSave} onKeyDown={handleKeyDown} autoFocus onClick={(e) => e.stopPropagation()} />
             ) : ( <h3>{project.title}</h3> )}
-            <div className="date">최근 수정 {project.date}</div>
+            <div className="date">최근 수정 {project.date || project.updatedAt}</div>
+            <button
+              type="button"
+              className="invite-code"
+              title="클릭하면 초대코드가 복사됩니다"
+              onClick={(event) => handleInviteCopy(event, project.inviteCode)}
+            >
+              <span>초대코드</span>
+              <strong>{project.inviteCode || '없음'}</strong>
+            </button>
             <div className="profile-thumbnail"><i className="fa-regular fa-circle-user"></i></div>
             <div className="card-footer">
-              <div className="meta-info"><span><i className="fa-solid fa-user"></i> 개인</span> {project.charts > 0 && ( <span><i className="fa-solid fa-box-archive"></i> 차트 {project.charts}개</span> )}</div>
+              <div className="meta-info"><span><i className="fa-solid fa-user"></i> 개인</span> {(project.charts || 0) > 0 && ( <span><i className="fa-solid fa-box-archive"></i> 차트 {project.charts}개</span> )}</div>
               <div className="action-btns">
                 <button type="button" className="edit-icon-btn" onClick={(e) => handleEditClick(e, project)}><i className="fa-solid fa-pen"></i></button>
-                <button type="button" className="delete-icon-btn" onClick={(e) => handleDeleteProject(e, project.id)}><i className="fa-solid fa-trash"></i></button>
+                <button type="button" className="delete-icon-btn" onClick={(e) => handleDeleteProject(e, project)}><i className="fa-solid fa-trash"></i></button>
               </div>
             </div>
           </ProjectCard>
         ))}
-        {projects.length < 10 && ( <EmptyCard onClick={handleAddProject}><span className="plus-icon">+</span><span>새 프로젝트 추가</span></EmptyCard> )}
+        {projects.length > 0 && projects.length < 10 && ( <EmptyCard onClick={handleAddProject}><span className="plus-icon">+</span><span>새 프로젝트 추가</span></EmptyCard> )}
       </ProjectGrid>
 
       {/* ==========================================================================
@@ -261,15 +406,17 @@ function Projects() {
               <button onClick={() => setIsViewAllOpen(false)}><i className="fa-solid fa-xmark"></i></button>
             </div>
             <div className="modal-body">
-              {visuals.map((visual) => (
+              {visuals.length === 0 ? (
+                <EmptyCard as="div"><span>저장된 시각화가 없습니다.</span></EmptyCard>
+              ) : visuals.map((visual) => (
                 <VisualCard key={visual.id} onClick={() => setSelectedVisual(visual)}>
                   {/* 💡 전체보기 모달 안에서도 삭제 기능 활성화 */}
                   <button className="delete-visual-btn" onClick={(e) => handleDeleteVisual(e, visual.id)}>
                     <i className="fa-solid fa-trash"></i>
                   </button>
-                  <div className="mock-img"><i className={`fa-solid ${visual.icon}`}></i></div>
+                  <div className="mock-img">{renderVisualPreview(visual)}</div>
                   <h4>{visual.title}</h4>
-                  <span>{visual.date}</span>
+                  <span>{visual.projectTitle} · {visual.date}</span>
                 </VisualCard>
               ))}
             </div>
@@ -285,16 +432,16 @@ function Projects() {
         {selectedVisual && (
           <>
             <div className="drawer-header">
-              <div className="title-wrap"><h3>{selectedVisual.title}</h3><span>저장 일자: {selectedVisual.date}</span></div>
+              <div className="title-wrap"><h3>{selectedVisual.title}</h3><span>{selectedVisual.projectTitle} · 저장 일자: {selectedVisual.date}</span></div>
               <button type="button" className="close-btn" onClick={() => setSelectedVisual(null)}><i className="fa-solid fa-xmark"></i></button>
             </div>
             <div className="drawer-body">
-              <div className="visual-preview"><i className={`fa-solid ${selectedVisual.icon}`}></i></div>
+              <div className="visual-preview">{renderVisualPreview(selectedVisual)}</div>
               <div className="info-section"><h5>데이터 분석 요약</h5><p>{selectedVisual.desc}</p></div>
               <div className="info-section">
                 <h5>세부 정보 필드</h5>
                 <div className="details-list">
-                  {selectedVisual.details.map((item, idx) => (
+                  {(selectedVisual.details || []).map((item, idx) => (
                     <div className="detail-item" key={idx}><span className="lbl">{item.lbl}</span><span className="val">{item.val}</span></div>
                   ))}
                 </div>

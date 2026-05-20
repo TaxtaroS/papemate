@@ -14,7 +14,7 @@ import { RiRobot2Line } from 'react-icons/ri';
 import { palette } from '../shared/palette';
 
 const SidebarContainer = styled.aside`
-  width: 260px; height: 100vh; 
+  width: clamp(220px, 22vw, 260px); height: 100vh; 
   background: #c8e6c9; 
   border-right: 1px solid #e2e8f0;      /* 💡 메인 대시보드와 경계를 나누는 깔끔한 우측 실선 유지 */
   display: flex; flex-direction: column; 
@@ -202,7 +202,18 @@ function SidebarIcon({ active, children }) {
   return <NavIcon $active={active}>{children}</NavIcon>;
 }
 
-function Sidebar({ viewMode, onMenuClick, onLogoClick, isLoggedIn, username, onProfileClick, collapsed, onCollapse }) {
+function Sidebar({
+  viewMode,
+  onMenuClick,
+  onLogoClick,
+  isLoggedIn,
+  username,
+  onProfileClick,
+  collapsed,
+  onCollapse,
+  recentConversations = [],
+  onRecentConversationClick,
+}) {
   return (
     <SidebarContainer $collapsed={collapsed}>
       <div style={{display:'flex', flexDirection:'column', width:'100%'}}>
@@ -226,19 +237,27 @@ function Sidebar({ viewMode, onMenuClick, onLogoClick, isLoggedIn, username, onP
             <span className="menu-text">새로운 채팅</span>
           </MenuBtn>
           
-          <div className="section-lbl">최근 대화</div>
-          <MenuBtn $active={false}>
-            <SidebarIcon><FiMessageSquare /></SidebarIcon>
-            <span className="menu-text">Rag란 무엇인가</span>
-          </MenuBtn>
-          <MenuBtn $active={false}>
-            <SidebarIcon><FiMessageSquare /></SidebarIcon>
-            <span className="menu-text">비교분석</span>
-          </MenuBtn>
-          <MenuBtn $active={false}>
-            <SidebarIcon><FiMessageSquare /></SidebarIcon>
-            <span className="menu-text">LLM이란 무엇인가</span>
-          </MenuBtn>
+          {isLoggedIn && (
+            <>
+              <div className="section-lbl">최근 대화</div>
+              {recentConversations.length === 0 && (
+                <MenuBtn $active={false}>
+                  <SidebarIcon><FiMessageSquare /></SidebarIcon>
+                  <span className="menu-text">최근 대화 없음</span>
+                </MenuBtn>
+              )}
+              {recentConversations.map((conversation) => (
+                <MenuBtn
+                  key={conversation.id}
+                  $active={false}
+                  onClick={() => onRecentConversationClick?.(conversation)}
+                >
+                  <SidebarIcon><FiMessageSquare /></SidebarIcon>
+                  <span className="menu-text">{conversation.title}</span>
+                </MenuBtn>
+              ))}
+            </>
+          )}
 
           <div style={{height:'1px', background:'rgba(15, 23, 42, 0.08)', margin:'16px 0'}} />
 
