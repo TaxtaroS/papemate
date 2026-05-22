@@ -49,7 +49,7 @@ export const MainContent = styled.main`
   padding: ${props => props.$isFullView ? '0px' : '24px 40px'}; 
   padding-left: ${props => {
     if (!props.$sidebarCollapsed) return props.$isFullView ? '0px' : '40px';
-    return props.$isFullView ? '72px' : '68px';
+    return props.$isFullView ? '0px' : '68px';
   }};
   box-sizing: border-box; height: 100vh; overflow: hidden; position: relative;
   transition: padding-left 0.22s ease;
@@ -59,7 +59,7 @@ export const MainContent = styled.main`
     padding: ${props => props.$isFullView ? '0px' : '20px'};
     padding-left: ${props => {
       if (!props.$sidebarCollapsed) return props.$isFullView ? '0px' : '20px';
-      return props.$isFullView ? '64px' : '52px';
+      return props.$isFullView ? '0px' : '52px';
     }};
   }
 `;
