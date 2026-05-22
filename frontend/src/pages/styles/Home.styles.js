@@ -17,13 +17,15 @@ export const SidebarSlot = styled.div`
 
 export const SidebarOpenButton = styled.button`
   position: fixed;
-  top: ${props => props.$isFullView ? '22px' : '18px'};
-  left: 12px;
+  top: ${props => props.$isFullView ? '50%' : '18px'};
+  left: ${props => props.$isFullView ? '0' : '12px'};
+  transform: ${props => props.$isFullView ? 'translateY(-50%)' : 'none'};
   z-index: 30;
-  width: ${props => props.$isFullView ? '34px' : '28px'};
-  height: ${props => props.$isFullView ? '34px' : '28px'};
+  width: ${props => props.$isFullView ? '36px' : '28px'};
+  height: ${props => props.$isFullView ? '48px' : '28px'};
   border: 1px solid ${props => props.$isFullView ? 'rgba(20, 125, 115, 0.18)' : '#cbd5e1'};
-  border-radius: 8px;
+  border-left: ${props => props.$isFullView ? 'none' : '1px solid #cbd5e1'};
+  border-radius: ${props => props.$isFullView ? '0 12px 12px 0' : '8px'};
   background: #ffffff;
   color: ${props => props.$isFullView ? '#126f67' : '#0f172a'};
   display: ${props => props.$visible ? 'inline-flex' : 'none'};
@@ -35,6 +37,7 @@ export const SidebarOpenButton = styled.button`
   &:hover {
     color: #0ea5a4;
     border-color: #94a3b8;
+    transform: ${props => props.$isFullView ? 'translateY(-50%) translateX(2px)' : 'none'};
   }
 
   svg {
