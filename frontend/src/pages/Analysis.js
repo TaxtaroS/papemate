@@ -251,7 +251,9 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
 
     event.preventDefault();
     event.stopPropagation();
-    handleSendMessage();
+    const pendingFiles = [...files];
+    setFiles([]);
+    handleSendMessage(pendingFiles);
   };
 
   const upsertRecentConversation = (nextMessages, question, nextFiles = files) => {
@@ -289,14 +291,14 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
     ].slice(0, MAX_RECENT_CONVERSATIONS));
   };
 
-  const handleSendMessage = async () => {
+  const handleSendMessage = async (filesToSend = files) => {
     const nextQuestion = promptText.trim();
-    if (!nextQuestion && files.length === 0) {
+    if (!nextQuestion && filesToSend.length === 0) {
       window.alert('질문을 입력하거나 파일을 선택해주세요.');
       return;
     }
 
-    const pendingFiles = [...files];
+    const pendingFiles = [...filesToSend];
     const question = nextQuestion || '업로드한 문서를 요약해줘';
     setPromptText('');
     setFiles([]);
@@ -780,7 +782,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
                 placeholder={files.length > 0 ? `${files.length}개 파일 기준으로 질문을 입력하세요...` : '분석 질문을 입력하세요...'}
                 onChange={(event) => setPromptText(event.target.value)}
               />
-              <button type="button" onClick={handleSendMessage}>전송</button>
+              <button type="button" onClick={() => handleSendMessage(files)}>전송</button>
             </div>
           </BottomPromptInput>
         </MainQAEngine>
