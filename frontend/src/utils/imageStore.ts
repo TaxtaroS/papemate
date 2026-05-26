@@ -1,4 +1,3 @@
-// @ts-nocheck
 // TypeScript 변경 표시: JSX가 없는 유틸/API 파일이라 .js에서 .ts로 바꾼 파일입니다.
 // TypeScript 변경 표시: 기존 동작은 유지하고, 이후 함수 인자/반환 타입을 점진적으로 붙일 수 있습니다.
 // 초보자 안내: 이미지처럼 큰 데이터를 브라우저 저장소에 따로 저장하고 꺼내는 도우미 파일입니다.
@@ -7,7 +6,13 @@ const DB_NAME = 'papermate-image-store';
 const DB_VERSION = 1;
 const STORE_NAME = 'images';
 
-const openImageDb = () =>
+interface SharedImageRecord {
+  id: string;
+  dataUrl: string;
+  savedAt: number;
+}
+
+const openImageDb = (): Promise<IDBDatabase> =>
   new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -22,7 +27,7 @@ const openImageDb = () =>
     request.onerror = () => reject(request.error);
   });
 
-export const putSharedImage = async (imageId, dataUrl) => {
+export const putSharedImage = async (imageId: string, dataUrl: string) => {
   if (!imageId || !dataUrl) return;
   const db = await openImageDb();
   await new Promise((resolve, reject) => {
@@ -34,10 +39,10 @@ export const putSharedImage = async (imageId, dataUrl) => {
   db.close();
 };
 
-export const getSharedImage = async (imageId) => {
+export const getSharedImage = async (imageId: string): Promise<string> => {
   if (!imageId) return '';
   const db = await openImageDb();
-  const record = await new Promise((resolve, reject) => {
+  const record = await new Promise<SharedImageRecord | undefined>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const request = tx.objectStore(STORE_NAME).get(imageId);
     request.onsuccess = () => resolve(request.result);

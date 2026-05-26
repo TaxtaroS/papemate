@@ -358,7 +358,7 @@ export const TimelineWrapper = styled.div`
   }
 `;
 
-export const TimelineNode = styled.article`
+export const TimelineNode = styled.article<{ $active?: boolean }>`
   position: relative;
   margin-bottom: 20px;
 
@@ -603,7 +603,7 @@ export const ResultTable = styled.table`
   }
 `;
 
-export const RightCoopPanel = styled.aside`
+export const RightCoopPanel = styled.aside<{ $error?: boolean }>`
   width: 340px;
   background: #f8fafc;
   border-left: 1px solid #e2e8f0;
@@ -792,7 +792,7 @@ export const ChatTimelineFeed = styled.div`
   }
 `;
 
-export const TalkBubble = styled.div`
+export const TalkBubble = styled.div<{ $isMe?: boolean }>`
   display: flex;
   flex-direction: column;
   align-items: ${(props) => (props.$isMe ? 'flex-end' : 'flex-start')};
@@ -1049,7 +1049,7 @@ export const ProjectPickerGrid = styled.div`
   }
 `;
 
-export const ProjectPickerCard = styled.button`
+export const ProjectPickerCard = styled.button<{ $loaded?: boolean }>`
   min-height: 154px;
   border: 1px solid ${(props) => (props.$loaded ? '#bce3e3' : '#e2e8f0')};
   border-radius: 8px;

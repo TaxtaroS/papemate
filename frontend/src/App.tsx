@@ -1,19 +1,26 @@
-// @ts-nocheck
 // TypeScript 변경 표시: JSX가 들어 있는 React 파일이라 .js에서 .tsx로 바꾼 파일입니다.
-// TypeScript 변경 표시: 기존 JS 로직은 유지하고, 타입은 점진적으로 붙일 수 있게 현재는 @ts-nocheck로 전환했습니다.
+// TypeScript 변경 표시: 기존 JS 로직은 유지하면서 함수 인자와 화면 props에 실제 타입을 붙여 TypeScript 검사를 통과하게 했습니다.
 // 초보자 안내: PaperMate 프론트엔드의 최상위 컴포넌트입니다. 로그인 상태와 메인 화면을 감쌉니다.
 
 import React from 'react';
 import Home from './pages/Home';
 import { AuthProvider } from './context/AuthContext';
 
-class AppErrorBoundary extends React.Component {
-  constructor(props) {
+interface AppErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface AppErrorBoundaryState {
+  error: Error | null;
+}
+
+class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
+  constructor(props: AppErrorBoundaryProps) {
     super(props);
     this.state = { error: null };
   }
 
-  static getDerivedStateFromError(error) {
+  static getDerivedStateFromError(error: Error): AppErrorBoundaryState {
     return { error };
   }
 

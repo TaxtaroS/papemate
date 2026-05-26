@@ -1,6 +1,5 @@
-// @ts-nocheck
 // TypeScript 변경 표시: JSX가 들어 있는 React 파일이라 .js에서 .tsx로 바꾼 파일입니다.
-// TypeScript 변경 표시: 기존 JS 로직은 유지하고, 타입은 점진적으로 붙일 수 있게 현재는 @ts-nocheck로 전환했습니다.
+// TypeScript 변경 표시: 기존 JS 로직은 유지하면서 함수 인자와 화면 props에 실제 타입을 붙여 TypeScript 검사를 통과하게 했습니다.
 // 초보자 안내: 사용자가 실제로 보게 되는 한 화면 단위의 React 페이지 컴포넌트입니다.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -55,7 +54,7 @@ const fallbackRoom = {
   comments: [],
 };
 
-const asArray = (value) => (Array.isArray(value) ? value : []);
+const asArray = (value: any): any[] => (Array.isArray(value) ? value : []);
 const MAX_RECENT_CONVERSATIONS = 50;
 
 // 로컬/공유 프로젝트 목록에서 유효한 프로젝트만 남깁니다.
@@ -93,10 +92,10 @@ const createInviteCode = () => {
 };
 
 // 업로드된 이미지를 data URL로 변환합니다.
-const readFileAsDataUrl = (file) =>
+const readFileAsDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
+    reader.onload = () => resolve(String(reader.result || ''));
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
@@ -505,8 +504,8 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     setNotice(`비교 자료 추가: "${supportProject.title}" 프로젝트 내용을 본문에 붙였습니다.`);
   };
 
-  const handleImageUpload = async (event) => {
-    const imageFiles = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const imageFiles = Array.from(event.target.files || []).filter((file: File) => file.type.startsWith('image/'));
     event.target.value = '';
 
     if (!activeProject) {

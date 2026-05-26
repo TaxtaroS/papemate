@@ -28,7 +28,7 @@ export const IconWrapper = styled.div`
   margin-bottom: 10px;
 `;
 
-export const ProfileActionButton = styled.button`
+export const ProfileActionButton = styled.button<{ $withMargin?: boolean }>`
   width: 100%;
   padding: 10px;
   background: #0ea5a4;

@@ -2,7 +2,7 @@
 
 import styled from 'styled-components';
 
-export const SidebarContainer = styled.aside`
+export const SidebarContainer = styled.aside<{ $collapsed?: boolean }>`
   width: clamp(232px, 19vw, 280px);
   height: 100vh;
   background: linear-gradient(180deg, #d8f0d9 0%, #c8e6c9 52%, #bfe0c0 100%);
@@ -130,7 +130,7 @@ export const BottomMenuGroup = styled.div`
   border-top: 1px solid rgba(47, 111, 104, 0.14);
 `;
 
-export const NavIcon = styled.span`
+export const NavIcon = styled.span<{ $active?: boolean }>`
   width: 20px;
   height: 20px;
   display: inline-flex;
@@ -147,7 +147,7 @@ export const NavIcon = styled.span`
   }
 `;
 
-export const MenuBtn = styled.div`
+export const MenuBtn = styled.div<{ $active?: boolean }>`
   display: flex;
   align-items: center;
   gap: 12px;

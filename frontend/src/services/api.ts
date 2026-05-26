@@ -1,9 +1,14 @@
-// @ts-nocheck
 // TypeScript 변경 표시: JSX가 없는 유틸/API 파일이라 .js에서 .ts로 바꾼 파일입니다.
 // TypeScript 변경 표시: 기존 동작은 유지하고, 이후 함수 인자/반환 타입을 점진적으로 붙일 수 있습니다.
 // 초보자 안내: 프론트엔드에서 백엔드 API를 호출할 때 공통으로 사용하는 axios 설정 파일입니다.
 
 import axios from 'axios';
+
+interface AnalysisChatOptions {
+  provider?: string;
+  openaiApiKey?: string;
+  googleApiKey?: string;
+}
 
 const getApiBaseUrl = () => {
   // TypeScript 변경 표시: Vite에서는 CRA의 process.env 대신 import.meta.env로 환경변수를 읽습니다.
@@ -58,18 +63,18 @@ apiClient.interceptors.response.use(
 );
 
 export const authAPI = {
-  signup: (username, password) =>
+  signup: (username: string, password: string) =>
     apiClient.post('/api/auth/signup', { username, password }),
 
-  login: (username, password) =>
+  login: (username: string, password: string) =>
     apiClient.post('/api/auth/login', { username, password }),
 
   healthCheck: () => apiClient.get('/api/health'),
 
-  updateProfile: (username) =>
+  updateProfile: (username: string) =>
     apiClient.patch('/api/auth/profile', { username }),
 
-  changePassword: (currentPassword, newPassword) =>
+  changePassword: (currentPassword: string, newPassword: string) =>
     apiClient.patch('/api/auth/password', {
       current_password: currentPassword,
       new_password: newPassword,
@@ -79,7 +84,7 @@ export const authAPI = {
 };
 
 export const analysisAPI = {
-  chat: (question, files, options = {}) => {
+  chat: (question: string, files: File[], options: AnalysisChatOptions = {}) => {
     const formData = new FormData();
     formData.append('question', question);
     formData.append('llm_provider', options.provider || 'openai');
@@ -91,7 +96,7 @@ export const analysisAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
-  createVisual: (type, files, analysisText = '') => {
+  createVisual: (type: string, files: File[], analysisText = '') => {
     const formData = new FormData();
     formData.append('analysis_text', analysisText);
     files.forEach((file) => formData.append('files', file));
@@ -104,10 +109,10 @@ export const analysisAPI = {
 
 export const projectAPI = {
   list: () => apiClient.get('/api/projects'),
-  sync: (projects) => apiClient.put('/api/projects/sync', { projects }),
-  save: (project) => apiClient.post('/api/projects', { project }),
-  delete: (projectId) => apiClient.delete(`/api/projects/${encodeURIComponent(projectId)}`),
-  findByInviteCode: (inviteCode) => apiClient.get(`/api/projects/invite/${encodeURIComponent(inviteCode)}`),
+  sync: (projects: unknown[]) => apiClient.put('/api/projects/sync', { projects }),
+  save: (project: unknown) => apiClient.post('/api/projects', { project }),
+  delete: (projectId: string) => apiClient.delete(`/api/projects/${encodeURIComponent(projectId)}`),
+  findByInviteCode: (inviteCode: string) => apiClient.get(`/api/projects/invite/${encodeURIComponent(inviteCode)}`),
 };
 
 export default apiClient;

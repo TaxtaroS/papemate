@@ -1,9 +1,4 @@
-// @ts-nocheck
-// TypeScript 변경 표시: JSX가 들어 있는 React 파일이라 .js에서 .tsx로 바꾼 파일입니다.
-// TypeScript 변경 표시: 기존 JS 로직은 유지하고, 타입은 점진적으로 붙일 수 있게 현재는 @ts-nocheck로 전환했습니다.
-// 초보자 안내: 화면에서 재사용되는 UI 조각을 정의한 React 컴포넌트 파일입니다.
-
-import React from 'react';
+import React, { ChangeEvent, KeyboardEvent } from 'react';
 import { FcGoogle } from 'react-icons/fc';
 import { RiKakaoTalkFill, RiRobot2Line } from 'react-icons/ri';
 import { SiNaver } from 'react-icons/si';
@@ -15,9 +10,30 @@ import {
   RecommendBody,
   RecommendBox,
   RecommendHeader,
-} from './styles/AuthModal.styles';
+} from './styles/AuthModal.styles'; // 스타일 파일 확장자 주의
 
-const SocialButtons = ({ mode }) => {
+// 1. 타입 정의
+type ModalMode = 'login' | 'signup' | 'recommend' | null;
+
+interface FormData {
+  id?: string;
+  pw?: string;
+  confirmPw?: string;
+}
+
+interface AuthModalProps {
+  modalMode: ModalMode;
+  setModalMode: (mode: ModalMode) => void;
+  formData: FormData;
+  onInputChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onLoginSubmit: () => void;
+  onSignupSubmit: () => void;
+  authError: string | null;
+  authLoading: boolean;
+}
+
+// 2. 내부 컴포넌트 타입 적용
+const SocialButtons = ({ mode }: { mode: 'login' | 'signup' }) => {
   const isSignup = mode === 'signup';
 
   return (
@@ -38,6 +54,7 @@ const SocialButtons = ({ mode }) => {
   );
 };
 
+// 3. 메인 컴포넌트
 function AuthModal({
   modalMode,
   setModalMode,
@@ -47,10 +64,10 @@ function AuthModal({
   onSignupSubmit,
   authError,
   authLoading,
-}) {
+}: AuthModalProps) {
   if (!modalMode) return null;
 
-  const handleEnterSubmit = (event) => {
+  const handleEnterSubmit = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Enter' || authLoading) return;
     if (modalMode === 'login') onLoginSubmit();
     if (modalMode === 'signup') onSignupSubmit();
@@ -92,7 +109,7 @@ function AuthModal({
           </div>
 
           <h3 className="popup-title">{modalMode === 'login' ? '로그인' : '회원가입'}</h3>
-          <SocialButtons mode={modalMode} />
+          <SocialButtons mode={modalMode === 'signup' ? 'signup' : 'login'} />
           <div className="divider">{modalMode === 'login' ? '또는' : '또는 일반 가입'}</div>
 
           {modalMode === 'login' ? (

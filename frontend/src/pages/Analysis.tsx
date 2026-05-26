@@ -1,6 +1,5 @@
-// @ts-nocheck
 // TypeScript 변경 표시: JSX가 들어 있는 React 파일이라 .js에서 .tsx로 바꾼 파일입니다.
-// TypeScript 변경 표시: 기존 JS 로직은 유지하고, 타입은 점진적으로 붙일 수 있게 현재는 @ts-nocheck로 전환했습니다.
+// TypeScript 변경 표시: 기존 JS 로직은 유지하면서 함수 인자와 화면 props에 실제 타입을 붙여 TypeScript 검사를 통과하게 했습니다.
 // 초보자 안내: 사용자가 실제로 보게 되는 한 화면 단위의 React 페이지 컴포넌트입니다.
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -146,7 +145,15 @@ const buildVisualAsset = (type, files, messages) => {
   };
 };
 
-function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange }) {
+interface AnalysisProps {
+  projectId?: any;
+  projectTitle?: any;
+  restoredData?: any;
+  clearRestore?: () => void;
+  onConversationChange?: (conversationId: any) => void;
+}
+
+function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConversationChange }: AnalysisProps) {
   const fileInputRef = useRef(null);
   const promptInputRef = useRef(null);
   const scrollRef = useRef(null);

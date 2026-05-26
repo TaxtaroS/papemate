@@ -3,7 +3,7 @@
 import styled from 'styled-components';
 import { palette } from '../../shared/palette';
 
-export const AvatarContainer = styled.div`
+export const AvatarContainer = styled.div<{ $size?: string }>`
   width: ${(props) => props.$size || '40px'};
   height: ${(props) => props.$size || '40px'};
   border-radius: 50%;

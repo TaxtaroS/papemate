@@ -9,7 +9,7 @@ export const Container = styled.div`
   display: flex; width: 100%; height: 100vh; width: 100vw; overflow: hidden; box-sizing: border-box;
 `;
 
-export const SidebarSlot = styled.div`
+export const SidebarSlot = styled.div<{ $collapsed?: boolean }>`
   width: ${props => props.$collapsed ? '0px' : 'clamp(232px, 19vw, 280px)'};
   height: 100vh;
   flex-shrink: 0;
@@ -17,7 +17,7 @@ export const SidebarSlot = styled.div`
   transition: width 0.22s ease;
 `;
 
-export const SidebarOpenButton = styled.button`
+export const SidebarOpenButton = styled.button<{ $visible?: boolean; $isFullView?: boolean }>`
   position: fixed;
   top: ${props => props.$isFullView ? '50%' : '18px'};
   left: ${props => props.$isFullView ? '0' : '12px'};
@@ -48,7 +48,7 @@ export const SidebarOpenButton = styled.button`
   }
 `;
 
-export const MainContent = styled.main`
+export const MainContent = styled.main<{ $isFullView?: boolean; $sidebarCollapsed?: boolean }>`
   flex: 1; display: flex; flex-direction: column; 
   background: #f9fbe7;      /* 💡 기본 베이스 미색 */
   padding: ${props => props.$isFullView ? '0px' : '24px 40px'}; 

@@ -3,7 +3,7 @@
 import styled from 'styled-components';
 import { palette } from '../../shared/palette';
 
-export const ModalOverlay = styled.div`
+export const ModalOverlay = styled.div<{ $show?: boolean }>`
   position: absolute;
   inset: 0;
   width: 100%;
