@@ -221,25 +221,31 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
   };
 
   const copyInviteCode = async () => {
-    if (!currentInviteCode || currentInviteCode === '저장 후 생성') {
-      window.alert('프로젝트를 저장하면 초대코드가 생성됩니다.');
+    if (!currentInviteCode || currentInviteCode === '?? ? ??') {
+      window.alert('????? ???? ????? ?????.');
       return;
     }
     await navigator.clipboard?.writeText(currentInviteCode);
-    window.alert(`초대코드가 복사되었습니다: ${currentInviteCode}`);
+    window.alert(`????? ???????: ${currentInviteCode}`);
   };
 
   const handleFileChange = (event) => {
     const selectedFiles = Array.from(event.target.files || []);
-    setFiles((prev) => [...prev, ...selectedFiles]);
+    if (selectedFiles.length === 0) return;
+
+    const nextFiles = [...files, ...selectedFiles];
+    setFiles(nextFiles);
+    ensureRecentConversationForFiles(nextFiles);
     event.target.value = '';
   };
 
   const handleRemoveFile = (file) => {
-    setFiles((prev) => prev.filter((item) => getFileKey(item) !== getFileKey(file)));
+    const nextFiles = files.filter((item) => getFileKey(item) !== getFileKey(file));
+    setFiles(nextFiles);
+    ensureRecentConversationForFiles(nextFiles);
   };
 
-  const upsertRecentConversation = (nextMessages, question) => {
+  const upsertRecentConversation = (nextMessages, question, nextFiles = files) => {
     const recentConversationsKey = getRecentConversationsKey();
     const savedRecents = readJson(recentConversationsKey, []);
     const conversationId = effectiveProjectId || recentConversationIdRef.current;
@@ -248,8 +254,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
       projectTitle ||
       restoredData?.projectTitle ||
       question ||
-      files[0]?.name?.replace(/\.[^.]+$/, '') ||
-      '새 분석 대화';
+      nextFiles[0]?.name?.replace(/\.[^.]+$/, '') ||
+      '? ?? ??';
 
     writeJson(recentConversationsKey, [
       {
@@ -260,7 +266,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
         question,
         date: formatDate(),
         inviteCode: currentProject?.inviteCode || restoredData?.inviteCode,
-        files: toStoredFiles(files),
+        files: toStoredFiles(nextFiles),
         thread: toStoredThread(nextMessages),
       },
       ...(Array.isArray(savedRecents)
@@ -272,6 +278,25 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
           )
         : []),
     ].slice(0, MAX_RECENT_CONVERSATIONS));
+  };
+
+  const ensureRecentConversationForFiles = (nextFiles) => {
+    const fileNames = nextFiles.map((file) => file.name).filter(Boolean).join(', ');
+    const hasSystemFileMessage = messages.some((message) => message.id === 'uploaded-files');
+    const fileMessage = {
+      id: 'uploaded-files',
+      role: 'system',
+      text: nextFiles.length > 0 ? `???? ??: ${fileNames}` : '???? ??? ????.',
+    };
+    const nextMessages = hasSystemFileMessage
+      ? messages.map((message) => (message.id === 'uploaded-files' ? fileMessage : message))
+      : [...messages, fileMessage];
+
+    setMessages(nextMessages);
+    upsertRecentConversation(nextMessages, fileNames || '?? ???', nextFiles);
+    if (typeof onConversationChange === 'function') {
+      onConversationChange(effectiveProjectId || recentConversationIdRef.current);
+    }
   };
 
   const handleSendMessage = async () => {
