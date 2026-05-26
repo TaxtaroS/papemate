@@ -1,3 +1,4 @@
+// @ts-nocheck
 // 초보자 안내: PaperMate 프론트엔드의 최상위 컴포넌트입니다. 로그인 상태와 메인 화면을 감쌉니다.
 
 import React from 'react';

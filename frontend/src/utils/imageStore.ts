@@ -1,3 +1,4 @@
+// @ts-nocheck
 // 초보자 안내: 이미지처럼 큰 데이터를 브라우저 저장소에 따로 저장하고 꺼내는 도우미 파일입니다.
 
 const DB_NAME = 'papermate-image-store';

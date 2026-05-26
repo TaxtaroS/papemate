@@ -1,6 +1,6 @@
 // 초보자 안내: 앱 전체에서 함께 쓰는 색상 팔레트를 모아둔 파일입니다.
 
-// src/shared/palette.js
+// src/shared/palette.ts
 
 export const palette = {
   /* ── 🩶 전체 시스템 베이스 무채색: 그레이 (Open Color 표준) ── */
@@ -17,7 +17,7 @@ export const palette = {
     '#212529', // 9
   ],
 
-  /* ── 🩶 Home.js 호환용 슬레이트 별칭(Alias) 지정 ── */
+  /* ── 🩶 Home.tsx 호환용 슬레이트 별칭(Alias) 지정 ── */
   // 💡 그레이 배열을 slate라는 이름으로도 안전하게 접근할 수 있도록 미러링 레이어를 연결했습니다.
   slate: [
     '#f8f9fa', // 0: 가장 연한 바탕 무채색

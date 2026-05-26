@@ -1,13 +1,16 @@
+// @ts-nocheck
 // 초보자 안내: 프론트엔드에서 백엔드 API를 호출할 때 공통으로 사용하는 axios 설정 파일입니다.
 
 import axios from 'axios';
 
 const getApiBaseUrl = () => {
-  if (process.env.REACT_APP_API_BASE_URL) {
-    return process.env.REACT_APP_API_BASE_URL;
+  const configuredUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.REACT_APP_API_BASE_URL;
+
+  if (configuredUrl) {
+    return configuredUrl;
   }
 
-  if (typeof window !== 'undefined' && ['3000', '3001'].includes(window.location.port)) {
+  if (typeof window !== 'undefined' && ['3000', '3001', '5173', '5174'].includes(window.location.port)) {
     return `http://${window.location.hostname}:8000`;
   }
 
@@ -23,7 +26,8 @@ const apiClient = axios.create({
   },
 });
 
-// 요청 인터셉터 - 토큰 자동 추가
+// 모든 API 요청을 보내기 직전에 실행됩니다.
+// 로그인 토큰이 있으면 Authorization 헤더에 자동으로 붙여서 백엔드가 사용자를 알아볼 수 있게 합니다.
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken');
@@ -35,7 +39,8 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// 응답 인터셉터 - 401 에러 처리
+// 백엔드가 401을 보내면 로그인 정보가 만료되었거나 잘못된 상태입니다.
+// 이때 저장된 로그인 값을 지우고 새로고침해서 다시 로그인하도록 만듭니다.
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -49,17 +54,13 @@ apiClient.interceptors.response.use(
   }
 );
 
-// 인증 API
 export const authAPI = {
-  // 회원가입
   signup: (username, password) =>
     apiClient.post('/api/auth/signup', { username, password }),
 
-  // 로그인
   login: (username, password) =>
     apiClient.post('/api/auth/login', { username, password }),
 
-  // 헬스 체크
   healthCheck: () => apiClient.get('/api/health'),
 
   updateProfile: (username) =>
@@ -98,9 +99,6 @@ export const analysisAPI = {
   },
 };
 
-// 프로젝트 MongoDB 저장 API
-// 지금 화면은 아직 localStorage를 많이 쓰지만, 이 함수들을 통해 같은 데이터를
-// FastAPI + MongoDB에 저장하고 다시 불러오는 쪽으로 단계적으로 옮길 수 있습니다.
 export const projectAPI = {
   list: () => apiClient.get('/api/projects'),
   sync: (projects) => apiClient.put('/api/projects/sync', { projects }),

@@ -66,18 +66,18 @@ async def health_check():
     return {"status": "ok", **db_status}
 
 
-# 배포 환경에서는 react-scripts가 만든 frontend/build 폴더의 정적 파일을 FastAPI가 직접 내려줍니다.
+# 배포 환경에서는 Vite가 만든 frontend/dist 폴더의 정적 파일을 FastAPI가 직접 내려줍니다.
 frontend_build_dir = Path(
     os.getenv(
         "FRONTEND_BUILD_DIR",
-        Path(__file__).resolve().parent.parent / "frontend" / "build",
+        Path(__file__).resolve().parent.parent / "frontend" / "dist",
     )
 )
 
 if frontend_build_dir.exists():
-    static_dir = frontend_build_dir / "static"
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    assets_dir = frontend_build_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_react_app(full_path: str):

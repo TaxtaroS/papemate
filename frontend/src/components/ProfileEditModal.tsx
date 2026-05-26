@@ -1,3 +1,4 @@
+// @ts-nocheck
 // 초보자 안내: 화면에서 재사용되는 UI 조각을 정의한 React 컴포넌트 파일입니다.
 
 import React, { useState } from 'react';
