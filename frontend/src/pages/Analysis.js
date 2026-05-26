@@ -281,15 +281,17 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
   const handleSendMessage = async () => {
     const nextQuestion = promptText.trim();
     if (!nextQuestion && files.length === 0) {
-      window.alert('질문을 입력하거나 파일을 업로드해주세요.');
+      window.alert('질문을 입력하거나 파일을 선택해주세요.');
       return;
     }
 
+    const pendingFiles = [...files];
     const question = nextQuestion || '업로드한 문서를 요약해줘';
     setPromptText('');
+    setFiles([]);
 
-    const fileNames = files.map((file) => file.name).filter(Boolean).join(', ');
-    const fileMessage = files.length > 0
+    const fileNames = pendingFiles.map((file) => file.name).filter(Boolean).join(', ');
+    const fileMessage = pendingFiles.length > 0
       ? { id: `uploaded-files-${Date.now()}`, role: 'system', text: `업로드된 파일: ${fileNames}` }
       : null;
     const userMessage = { id: `user-${Date.now()}`, role: 'user', text: question };
@@ -301,14 +303,14 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
     }
 
     setMessages(messagesWithQuestion);
-    upsertRecentConversation(messagesWithQuestion, question);
+    upsertRecentConversation(messagesWithQuestion, question, pendingFiles);
     if (isNewConversation && typeof onConversationChange === 'function') {
       onConversationChange(recentConversationIdRef.current);
     }
     setIsAnalyzing(true);
 
     try {
-      const response = await analysisAPI.chat(question, files, {
+      const response = await analysisAPI.chat(question, pendingFiles, {
         provider: llmProvider,
         openaiApiKey,
         googleApiKey,
@@ -316,27 +318,35 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
       const providerNote = response.data?.provider
         ? `\n\n분석 엔진: ${response.data.provider === 'google' ? 'Google Gemini' : 'OpenAI'}${response.data.model ? ` (${response.data.model})` : ''}`
         : '';
-      const answer = response.data?.answer || response.data?.summary || buildLocalFallbackAnswer(question, files, messages);
+      const answer = response.data?.answer || response.data?.summary || buildLocalFallbackAnswer(question, pendingFiles, messages);
+      const successMessage = pendingFiles.length > 0
+        ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${fileNames}` }
+        : null;
       const messagesWithAnswer = [
         ...messagesWithQuestion,
+        ...(successMessage ? [successMessage] : []),
         { id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}` },
       ];
       setMessages(messagesWithAnswer);
-      upsertRecentConversation(messagesWithAnswer, question);
+      upsertRecentConversation(messagesWithAnswer, question, pendingFiles);
     } catch (error) {
-      const serverMessage = error.response?.data?.detail || error.message;
+      const serverMessage = error.response?.data?.detail || error.response?.data?.message || error.message || '알 수 없는 오류가 발생했습니다.';
+      const failureMessage = pendingFiles.length > 0
+        ? { id: `upload-failure-${Date.now()}`, role: 'system', text: `파일 전송 실패: ${serverMessage}` }
+        : null;
       const messagesWithAnswer = [
         ...messagesWithQuestion,
+        ...(failureMessage ? [failureMessage] : []),
         {
           id: `ai-${Date.now()}`,
           role: 'ai',
-          text: [serverMessage && `서버 분석 실패: ${serverMessage}`, buildLocalFallbackAnswer(question, files, messages)]
+          text: [`서버 분석 실패: ${serverMessage}`, buildLocalFallbackAnswer(question, pendingFiles, messages)]
             .filter(Boolean)
             .join('\n\n'),
         },
       ];
       setMessages(messagesWithAnswer);
-      upsertRecentConversation(messagesWithAnswer, question);
+      upsertRecentConversation(messagesWithAnswer, question, pendingFiles);
     } finally {
       setIsAnalyzing(false);
     }
@@ -757,7 +767,11 @@ function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange
                 value={promptText}
                 placeholder={files.length > 0 ? `${files.length}개 파일 기준으로 질문을 입력하세요...` : '분석 질문을 입력하세요...'}
                 onChange={(event) => setPromptText(event.target.value)}
-                onKeyDown={(event) => event.key === 'Enter' && handleSendMessage()}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' || event.nativeEvent?.isComposing) return;
+                  event.preventDefault();
+                  handleSendMessage();
+                }}
               />
               <button type="button" onClick={handleSendMessage}>전송</button>
             </div>
