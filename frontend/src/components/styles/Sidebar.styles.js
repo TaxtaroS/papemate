@@ -173,9 +173,42 @@ export const MenuBtn = styled.div`
 
   .menu-text {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+`;
+
+export const RecentDeleteButton = styled.button`
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(51, 95, 90, 0.58);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.15s ease;
+
+  svg {
+    width: 15px;
+    height: 15px;
+    stroke-width: 2.2;
+  }
+
+  ${MenuBtn}:hover &,
+  &:focus-visible {
+    opacity: 1;
+  }
+
+  &:hover {
+    background: rgba(220, 38, 38, 0.1);
+    color: #dc2626;
   }
 `;
 

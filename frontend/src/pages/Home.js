@@ -18,7 +18,7 @@ import {
   GridContainer,
   FeatureCard,
 } from './styles/Home.styles';
-import { getProjectsKey, getRecentConversationsKey, readJson } from '../utils/storageKeys';
+import { getProjectsKey, getRecentConversationsKey, readJson, writeJson } from '../utils/storageKeys';
 import papermateLogo from '../assets/papermate-logo.png';
 
 const VIEW = {
@@ -244,15 +244,32 @@ function Home() {
 
     setRestoredData({
       projectId: project?.id || conversation.projectId || conversation.id,
+      conversationId: conversation.conversationId || conversation.id,
       q: lastUserMessage?.text || conversation.question || project?.title,
       a: lastAiMessage?.text || `"${conversation.title}" 프로젝트로 저장된 최근 분석 대화입니다.`,
       projectTitle: project?.title || conversation.title,
-      inviteCode: project?.inviteCode,
-      files: project?.files || [],
+      inviteCode: project?.inviteCode || conversation.inviteCode,
+      files: project?.files || conversation.files || [],
       thread,
     });
-    setAnalysisSessionKey(`analysis-${conversation.id || conversation.projectId || Date.now()}`);
+    setAnalysisSessionKey(`analysis-${conversation.conversationId || conversation.id || conversation.projectId || Date.now()}`);
     navigateToView(VIEW.ANALYSIS);
+  };
+
+  const handleDeleteRecent = (id, event) => {
+    event?.stopPropagation();
+    if (!window.confirm('이 최근 대화 기록을 삭제하시겠습니까?')) return;
+
+    const updatedRecents = recentConversations.filter((item) => item.id !== id);
+    setRecentConversations(updatedRecents);
+    writeJson(getRecentConversationsKey(), updatedRecents);
+
+    const activeId = restoredData?.conversationId || restoredData?.projectId || restoredData?.id;
+    if (activeId === id) {
+      setRestoredData(null);
+      setAnalysisSessionKey(`analysis-${Date.now()}`);
+      if (viewMode === VIEW.ANALYSIS) navigateToView(VIEW.ANALYSIS, { clearRestoredData: true });
+    }
   };
 
   const handleConversationChange = (conversationId) => {
@@ -276,6 +293,9 @@ function Home() {
   };
 
   const isFullView = [VIEW.SHARE, VIEW.ANALYSIS, VIEW.PROJECTS, VIEW.MYPAGE].includes(viewMode);
+  const activeConversationId = viewMode === VIEW.ANALYSIS
+    ? (restoredData?.conversationId || restoredData?.projectId || restoredData?.id || null)
+    : null;
 
   useEffect(() => {
     if (loading || isLoggedIn || !isFullView) return;
@@ -309,6 +329,8 @@ function Home() {
           onCollapse={() => setIsSidebarCollapsed(true)}
           recentConversations={recentConversations}
           onRecentConversationClick={handleRecentConversationClick}
+          onDeleteRecent={handleDeleteRecent}
+          activeConversationId={activeConversationId}
         />
       </SidebarSlot>
 
@@ -342,31 +364,19 @@ function Home() {
             <GridContainer>
               <FeatureCard onClick={() => handleMenuRouting(VIEW.ANALYSIS)}>
                 <div className="icon-box"><FiFileText /></div>
-                <div className="text-box">
-                  <h4>문서 분석 · 요약</h4>
-                  <p>HWP, HWPX, PDF 문서의 핵심 내용을 추출하고 요약합니다.</p>
-                </div>
+                <div className="text-box"><h4>문서 분석 · 요약</h4><p>HWP, HWPX, PDF 문서의 핵심 내용을 추출하고 요약합니다.</p></div>
               </FeatureCard>
               <FeatureCard onClick={() => handleMenuRouting(VIEW.ANALYSIS)}>
                 <div className="icon-box"><FiCopy /></div>
-                <div className="text-box">
-                  <h4>다중문서 비교</h4>
-                  <p>여러 문서를 비교하고 차이점을 시각화합니다.</p>
-                </div>
+                <div className="text-box"><h4>다중문서 비교</h4><p>여러 문서를 비교하고 차이점을 시각화합니다.</p></div>
               </FeatureCard>
               <FeatureCard onClick={() => handleMenuRouting(VIEW.PROJECTS)}>
                 <div className="icon-box"><FiBarChart2 /></div>
-                <div className="text-box">
-                  <h4>데이터 시각화</h4>
-                  <p>문서 속 데이터를 차트와 그래프로 변환합니다.</p>
-                </div>
+                <div className="text-box"><h4>데이터 시각화</h4><p>문서 속 데이터를 차트와 그래프로 변환합니다.</p></div>
               </FeatureCard>
               <FeatureCard onClick={() => handleMenuRouting(VIEW.SHARE)}>
                 <div className="icon-box"><FiUsers /></div>
-                <div className="text-box">
-                  <h4>작업공간</h4>
-                  <p>초대 코드로 팀원을 초대하고 분석 결과를 함께 검토합니다.</p>
-                </div>
+                <div className="text-box"><h4>작업공간</h4><p>초대 코드로 팀원을 초대하고 분석 결과를 함께 검토합니다.</p></div>
               </FeatureCard>
             </GridContainer>
           </MainDashboard>
