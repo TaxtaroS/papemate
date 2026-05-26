@@ -141,9 +141,12 @@ const buildVisualAsset = (type, files, messages) => {
   };
 };
 
-function AnalysisC({ projectId, projectTitle, restoredData }) {
+function AnalysisC({ projectId, projectTitle, restoredData, onConversationChange }) {
   const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
+  const recentConversationIdRef = useRef(
+    restoredData?.conversationId || restoredData?.projectId || projectId || `conversation-${Date.now()}`
+  );
   const [savedProjectId, setSavedProjectId] = useState(null);
   const effectiveProjectId = savedProjectId || projectId || restoredData?.projectId;
   const [files, setFiles] = useState([]);
@@ -167,6 +170,9 @@ function AnalysisC({ projectId, projectTitle, restoredData }) {
 
   useEffect(() => {
     if (!restoredData) return;
+    if (restoredData.conversationId || restoredData.projectId || restoredData.id) {
+      recentConversationIdRef.current = restoredData.conversationId || restoredData.projectId || restoredData.id;
+    }
     const restoredFiles = Array.isArray(restoredData.files) ? restoredData.files : [];
     const restoredThread = Array.isArray(restoredData.thread) && restoredData.thread.length > 0
       ? restoredData.thread
@@ -233,6 +239,41 @@ function AnalysisC({ projectId, projectTitle, restoredData }) {
     setFiles((prev) => prev.filter((item) => getFileKey(item) !== getFileKey(file)));
   };
 
+  const upsertRecentConversation = (nextMessages, question) => {
+    const recentConversationsKey = getRecentConversationsKey();
+    const savedRecents = readJson(recentConversationsKey, []);
+    const conversationId = effectiveProjectId || recentConversationIdRef.current;
+    const title =
+      currentProject?.title ||
+      projectTitle ||
+      restoredData?.projectTitle ||
+      question ||
+      files[0]?.name?.replace(/\.[^.]+$/, '') ||
+      '새 분석 대화';
+
+    writeJson(recentConversationsKey, [
+      {
+        id: conversationId,
+        conversationId,
+        projectId: effectiveProjectId || null,
+        title,
+        question,
+        date: formatDate(),
+        inviteCode: currentProject?.inviteCode || restoredData?.inviteCode,
+        files: toStoredFiles(files),
+        thread: toStoredThread(nextMessages),
+      },
+      ...(Array.isArray(savedRecents)
+        ? savedRecents.filter(
+            (item) =>
+              item.id !== conversationId &&
+              item.conversationId !== conversationId &&
+              item.projectId !== conversationId
+          )
+        : []),
+    ].slice(0, MAX_RECENT_CONVERSATIONS));
+  };
+
   const handleSendMessage = async () => {
     const nextQuestion = promptText.trim();
     if (!nextQuestion && files.length === 0) {
@@ -242,7 +283,17 @@ function AnalysisC({ projectId, projectTitle, restoredData }) {
 
     const question = nextQuestion || '업로드한 문서를 요약해줘';
     setPromptText('');
-    setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', text: question }]);
+    const userMessage = { id: `user-${Date.now()}`, role: 'user', text: question };
+    const messagesWithQuestion = [...messages, userMessage];
+    const isNewConversation = recentConversationIdRef.current.startsWith('conversation-');
+    if (isNewConversation) {
+      recentConversationIdRef.current = `conv-${Date.now()}`;
+    }
+    setMessages(messagesWithQuestion);
+    upsertRecentConversation(messagesWithQuestion, question);
+    if (isNewConversation && typeof onConversationChange === 'function') {
+      onConversationChange(recentConversationIdRef.current);
+    }
     setIsAnalyzing(true);
 
     try {
@@ -255,11 +306,16 @@ function AnalysisC({ projectId, projectTitle, restoredData }) {
         ? `\n\n분석 엔진: ${response.data.provider === 'google' ? 'Google Gemini' : 'OpenAI'}${response.data.model ? ` (${response.data.model})` : ''}`
         : '';
       const answer = response.data?.answer || response.data?.summary || buildLocalFallbackAnswer(question, files, messages);
-      setMessages((prev) => [...prev, { id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}` }]);
+      const messagesWithAnswer = [
+        ...messagesWithQuestion,
+        { id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}` },
+      ];
+      setMessages(messagesWithAnswer);
+      upsertRecentConversation(messagesWithAnswer, question);
     } catch (error) {
       const serverMessage = error.response?.data?.detail || error.message;
-      setMessages((prev) => [
-        ...prev,
+      const messagesWithAnswer = [
+        ...messagesWithQuestion,
         {
           id: `ai-${Date.now()}`,
           role: 'ai',
@@ -267,7 +323,9 @@ function AnalysisC({ projectId, projectTitle, restoredData }) {
             .filter(Boolean)
             .join('\n\n'),
         },
-      ]);
+      ];
+      setMessages(messagesWithAnswer);
+      upsertRecentConversation(messagesWithAnswer, question);
     } finally {
       setIsAnalyzing(false);
     }
@@ -332,6 +390,7 @@ function AnalysisC({ projectId, projectTitle, restoredData }) {
     const nextRecent = {
       id: projectRecord.id,
       projectId: projectRecord.id,
+      conversationId: recentConversationIdRef.current,
       title: projectRecord.title,
       question: lastUserMessage?.text || projectRecord.title,
       date: projectRecord.date,
@@ -342,7 +401,13 @@ function AnalysisC({ projectId, projectTitle, restoredData }) {
     writeJson(recentConversationsKey, [
       nextRecent,
       ...(Array.isArray(savedRecents)
-        ? savedRecents.filter((item) => item.projectId !== projectRecord.id && item.id !== projectRecord.id)
+        ? savedRecents.filter(
+            (item) =>
+              item.projectId !== projectRecord.id &&
+              item.id !== projectRecord.id &&
+              item.id !== recentConversationIdRef.current &&
+              item.conversationId !== recentConversationIdRef.current
+          )
         : []),
     ].slice(0, MAX_RECENT_CONVERSATIONS));
 
@@ -394,6 +459,7 @@ function AnalysisC({ projectId, projectTitle, restoredData }) {
       const projectRecord = buildProjectRecord(title, existingProject);
       await persistProject(projectRecord);
       setSavedProjectId(projectRecord.id);
+      recentConversationIdRef.current = projectRecord.id;
       setCurrentProject(projectRecord);
       setVisuals(projectRecord.visuals);
       setIsProjectSaveOpen(false);

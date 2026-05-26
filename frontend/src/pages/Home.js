@@ -255,6 +255,26 @@ function Home() {
     navigateToView(VIEW.ANALYSIS);
   };
 
+  const handleConversationChange = (conversationId) => {
+    const updatedRecents = loadRecentConversations();
+    setRecentConversations(updatedRecents);
+    const nextConversation = updatedRecents.find(
+      (item) => item.id === conversationId || item.conversationId === conversationId
+    );
+    if (nextConversation) {
+      setRestoredData((prev) => ({
+        ...(prev || {}),
+        id: conversationId,
+        conversationId,
+        projectId: nextConversation.projectId,
+        projectTitle: nextConversation.title,
+        inviteCode: nextConversation.inviteCode,
+        files: nextConversation.files || [],
+        thread: nextConversation.thread || [],
+      }));
+    }
+  };
+
   const isFullView = [VIEW.SHARE, VIEW.ANALYSIS, VIEW.PROJECTS, VIEW.MYPAGE].includes(viewMode);
 
   useEffect(() => {
@@ -364,6 +384,7 @@ function Home() {
             key={analysisSessionKey}
             restoredData={restoredData}
             clearRestore={() => setRestoredData(null)}
+            onConversationChange={handleConversationChange}
           />
         )}
 
