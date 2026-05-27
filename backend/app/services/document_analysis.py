@@ -1,6 +1,7 @@
 # 초보자 안내: PDF, DOCX, HWPX, 이미지 등에서 텍스트를 뽑고 기본 분석 결과를 만드는 서비스입니다.
 
 import io
+import math
 import re
 import struct
 import zipfile
@@ -21,6 +22,82 @@ from xml.etree import ElementTree
 
 TEXT_EXTENSIONS = {".txt", ".md", ".csv"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+CHUNK_SIZE = 900
+CHUNK_OVERLAP = 160
+
+# WikiDocs의 한국어 QA 예제는 사용자 사전을 추가한 형태소 분석으로
+# 사람 이름/전문용어가 잘게 쪼개지는 문제를 줄이는 아이디어를 소개합니다.
+# 우리 프로젝트에서는 설치가 까다로운 형태소 분석기를 필수로 두지 않고,
+# 설치되어 있으면 사용하고 없으면 정규식 기반 토큰화로 안전하게 동작하게 합니다.
+DOMAIN_TERMS = {
+    "RAG",
+    "LLM",
+    "BERT",
+    "GPT",
+    "OWPML",
+    "HWPX",
+    "HWP",
+    "FastAPI",
+    "MongoDB",
+    "정확도",
+    "정밀도",
+    "재현율",
+    "데이터셋",
+    "벤치마크",
+    "마인드맵",
+    "시각화",
+}
+
+KOREAN_SUFFIXES = (
+    "에서는",
+    "에게서",
+    "으로서",
+    "으로써",
+    "입니다",
+    "합니다",
+    "였다",
+    "했다",
+    "에서",
+    "으로",
+    "에게",
+    "보다",
+    "처럼",
+    "까지",
+    "부터",
+    "이며",
+    "이고",
+    "지만",
+    "는데",
+    "거나",
+    "하고",
+    "라는",
+    "이란",
+    "되었습니다",
+    "했습니다",
+    "됩니다",
+    "합니다",
+    "되었",
+    "하였",
+    "했다",
+    "된다",
+    "하다",
+    "였다",
+    "보였다",
+    "나왔다",
+    "있었다",
+    "은",
+    "는",
+    "이",
+    "가",
+    "을",
+    "를",
+    "에",
+    "의",
+    "도",
+    "와",
+    "과",
+    "로",
+)
 
 
 # 공백과 HTML 엔티티를 정리해 분석하기 쉬운 한 줄 텍스트로 만듭니다.
@@ -43,6 +120,47 @@ def _sentences(text: str) -> list[str]:
         seen.add(cleaned)
         sentences.append(cleaned)
     return sentences
+
+
+def _strip_korean_suffix(word: str) -> str:
+    """조사/어미가 붙은 한국어 단어를 키워드 비교용으로 가볍게 정규화합니다."""
+
+    for suffix in KOREAN_SUFFIXES:
+        if word.endswith(suffix) and len(word) > len(suffix) + 1:
+            return word[: -len(suffix)]
+    return word
+
+
+def _regex_terms(text: str) -> list[str]:
+    """외부 형태소 분석기가 없을 때 쓰는 기본 토큰화입니다."""
+
+    terms = []
+    for word in re.findall(r"[A-Za-z가-힣0-9]{2,}", text.lower()):
+        normalized = _strip_korean_suffix(word)
+        if len(normalized) >= 2:
+            terms.append(normalized)
+    return terms
+
+
+def _tokenize_terms(text: str) -> list[str]:
+    """선택형 한국어 토큰화입니다.
+
+    customized_konlpy가 설치되어 있으면 사용자 사전을 넣어 전문용어를 보호하고,
+    설치되어 있지 않으면 정규식 기반 토큰화로 그대로 진행합니다.
+    """
+
+    try:
+        from ckonlpy.tag import Twitter
+    except ModuleNotFoundError:
+        return _regex_terms(text)
+
+    try:
+        tokenizer = Twitter()
+        for term in DOMAIN_TERMS:
+            tokenizer.add_dictionary(term, "Noun")
+        return [_strip_korean_suffix(token.lower()) for token in tokenizer.morphs(text) if len(token.strip()) >= 2]
+    except Exception:
+        return _regex_terms(text)
 
 
 # 기본 분석에서 중요한 문장 후보를 고르기 위한 점수 함수입니다.
@@ -76,7 +194,7 @@ def _keyword_score(sentence: str, query_terms: set[str] | None = None, term_weig
     if query_terms:
         score += sum(2.8 for term in query_terms if term and term in lowered)
     if term_weights:
-        sentence_terms = set(re.findall(r"[A-Za-z가-힣0-9]{2,}", lowered))
+        sentence_terms = set(_tokenize_terms(lowered))
         score += sum(min(term_weights.get(term, 0), 4) * 0.38 for term in sentence_terms)
     return score
 
@@ -88,7 +206,7 @@ def _top_sentences(text: str, limit: int = 5, question: str = "") -> list[str]:
         return []
 
     query_terms = set(_frequent_terms(question, 8)) if question else set()
-    term_weights = Counter(re.findall(r"[A-Za-z가-힣0-9]{2,}", text.lower()))
+    term_weights = Counter(_tokenize_terms(text))
     ranked = sorted(
         enumerate(sentences),
         key=lambda item: (
@@ -105,7 +223,7 @@ def _top_sentences(text: str, limit: int = 5, question: str = "") -> list[str]:
 # 자주 등장하는 단어를 뽑아 키워드 목록을 만듭니다.
 # 조사/일반 단어는 stopwords로 제외합니다.
 def _frequent_terms(text: str, limit: int = 10) -> list[str]:
-    words = re.findall(r"[A-Za-z가-힣0-9]{2,}", text.lower())
+    words = _tokenize_terms(text)
     stopwords = {
         "the",
         "and",
@@ -124,9 +242,128 @@ def _frequent_terms(text: str, limit: int = 10) -> list[str]:
         "한다",
         "에서",
         "으로",
+        "그리고",
+        "하지만",
+        "또한",
+        "통해",
+        "위해",
+        "경우",
+        "사용",
+        "대한",
+        "관련",
+        "되었습니다",
+        "했습니다",
+        "됩니다",
+        "합니다",
+        "되었",
+        "하였",
+        "향상되었",
+        "나타났",
+        "보였다",
+        "나왔다",
+        "있었다",
+        "없는",
+        "있다",
     }
-    counter = Counter(word for word in words if word not in stopwords)
+    counter = Counter(word for word in words if word not in stopwords and len(word) >= 2)
     return [word for word, _ in counter.most_common(limit)]
+
+
+def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """긴 문서를 RAG처럼 겹치는 청크로 나눕니다.
+
+    LangChain의 RecursiveCharacterTextSplitter 개념을 가볍게 구현한 버전입니다.
+    문장 경계를 우선 사용하고, 너무 긴 문장은 길이 기준으로 한 번 더 자릅니다.
+    """
+
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return []
+    if len(cleaned) <= chunk_size:
+        return [cleaned]
+
+    chunks: list[str] = []
+    current = ""
+    for sentence in _sentences(cleaned) or [cleaned]:
+        if len(sentence) > chunk_size:
+            step = max(chunk_size - overlap, 1)
+            chunks.extend(sentence[index:index + chunk_size] for index in range(0, len(sentence), step))
+            current = ""
+            continue
+
+        next_text = f"{current} {sentence}".strip()
+        if len(next_text) <= chunk_size:
+            current = next_text
+            continue
+
+        if current:
+            chunks.append(current)
+            current = f"{current[-overlap:]} {sentence}".strip() if overlap else sentence
+        else:
+            current = sentence
+
+    if current:
+        chunks.append(current)
+
+    return [chunk for chunk in chunks if chunk.strip()]
+
+
+def _idf_weights(chunks: list[str]) -> dict[str, float]:
+    token_sets = [set(_tokenize_terms(chunk)) for chunk in chunks]
+    total = len(token_sets)
+    document_frequency = Counter(token for tokens in token_sets for token in tokens)
+    return {
+        token: math.log((total + 1) / (count + 1)) + 1
+        for token, count in document_frequency.items()
+    }
+
+
+def rank_relevant_chunks(question: str, extracted_docs: list[dict], limit: int = 6) -> list[dict]:
+    """질문과 가까운 문서 조각을 TF-IDF식 점수로 고릅니다.
+
+    벡터DB 없이도 긴 문서에서 질문과 관련 있는 부분을 먼저 보여주기 위한 로컬 검색입니다.
+    """
+
+    candidates: list[dict] = []
+    for doc in extracted_docs:
+        for index, chunk in enumerate(_chunk_text(doc.get("text", "")), start=1):
+            candidates.append(
+                {
+                    "filename": doc.get("filename", "unknown"),
+                    "format": doc.get("format", "unknown"),
+                    "chunk_index": index,
+                    "text": chunk,
+                }
+            )
+
+    if not candidates:
+        return []
+
+    query_terms = set(_tokenize_terms(question or " ".join(_frequent_terms(" ".join(item["text"] for item in candidates), 8))))
+    idf = _idf_weights([item["text"] for item in candidates])
+
+    ranked = []
+    for item in candidates:
+        term_counts = Counter(_tokenize_terms(item["text"]))
+        if not term_counts:
+            continue
+
+        score = 0.0
+        for term in query_terms:
+            if not term:
+                continue
+            tf = term_counts.get(term, 0)
+            if tf:
+                score += (1 + math.log(tf)) * idf.get(term, 1)
+
+        # 질문어가 적거나 일치가 거의 없을 때도 연구 핵심 문장 청크가 올라오게 보정합니다.
+        score += sum(min(idf.get(term, 1), 3) for term in _frequent_terms(item["text"], 4)) * 0.15
+        score += len(_metric_candidates(item["text"], 2)) * 1.4
+
+        ranked.append({**item, "score": round(score, 4)})
+
+    ranked.sort(key=lambda item: item["score"], reverse=True)
+    return ranked[:limit]
 
 
 # 정확도/성능 수치처럼 논문 비교에 자주 필요한 값을 규칙 기반으로 뽑습니다.
@@ -245,7 +482,35 @@ def extract_docx(content: bytes) -> str:
 # HWPX는 OWPML이라는 XML 기반 압축 포맷입니다.
 # 한글 문서의 본문 XML은 Contents/section*.xml 계열에 들어 있는 경우가 많습니다.
 def extract_hwpx_owpml(content: bytes) -> str:
-    return _iter_zip_xml_text(content, ("header.xml", "section0.xml", "section1.xml", "section2.xml", "section3.xml"))
+    texts: list[str] = []
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        for name in archive.namelist():
+            lower_name = name.lower()
+            if not lower_name.endswith(".xml"):
+                continue
+
+            # OWPML/HWPX 본문은 보통 contents/section*.xml에 있지만,
+            # 문서에 따라 header.xml, settings.xml 등에도 분석에 도움 되는 텍스트가 있습니다.
+            is_body_xml = (
+                "section" in lower_name
+                or lower_name.endswith("header.xml")
+                or lower_name.endswith("settings.xml")
+                or lower_name.endswith("content.hpf")
+            )
+            if not is_body_xml:
+                continue
+
+            try:
+                root = ElementTree.fromstring(archive.read(name))
+            except ElementTree.ParseError:
+                continue
+
+            for node in root.iter():
+                if node.text and node.text.strip():
+                    texts.append(node.text.strip())
+
+    extracted = _clean_text(" ".join(texts))
+    return extracted or "HWPX/OWPML 내부에서 추출 가능한 본문 텍스트를 찾지 못했습니다."
 
 
 # .hwp 구형 바이너리 문서는 HWPX보다 훨씬 까다롭습니다.
@@ -356,8 +621,10 @@ def extract_file_text(filename: str, content: bytes) -> tuple[str, str]:
 def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
     combined_text = "\n".join(doc["text"] for doc in extracted_docs if doc["text"])
     intent = _question_intent(question)
-    highlights = _top_sentences(combined_text, 10, question)
-    summary_points = _extractive_summary(combined_text, question, 4)
+    relevant_chunks = rank_relevant_chunks(question, extracted_docs, 6)
+    relevant_text = "\n".join(chunk["text"] for chunk in relevant_chunks) or combined_text
+    highlights = _top_sentences(relevant_text, 10, question)
+    summary_points = _extractive_summary(relevant_text, question, 4)
     terms = _frequent_terms(combined_text)
     metrics = _metric_candidates(combined_text)
 
@@ -407,6 +674,18 @@ def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
     else:
         answer_lines.append("- 정확도, F1, AUC, % 등으로 표시된 실험 수치 후보를 찾지 못했습니다.")
 
+    if relevant_chunks:
+        answer_lines.extend([
+            "",
+            "[질문 관련 문서 구간]",
+        ])
+        for chunk in relevant_chunks[:4]:
+            preview = _clean_text(chunk["text"])[:260]
+            answer_lines.append(
+                f"- {chunk['filename']} #{chunk['chunk_index']} "
+                f"(관련도 {chunk['score']}): {preview}"
+            )
+
     answer_lines.extend([
         "",
         "[문서별 핵심 발췌]",
@@ -446,4 +725,5 @@ def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
         "keywords": terms,
         "metrics": metrics,
         "documents": comparison,
+        "relevant_chunks": relevant_chunks,
     }

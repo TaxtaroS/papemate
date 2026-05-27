@@ -2,6 +2,8 @@
 
 import os
 
+from app.services.document_analysis import rank_relevant_chunks
+
 
 MAX_CONTEXT_CHARS = 18000
 
@@ -13,6 +15,29 @@ def _clip(text: str, limit: int = MAX_CONTEXT_CHARS) -> str:
 
 
 def _build_document_context(extracted_docs: list[dict]) -> str:
+    return _build_ranked_document_context("", extracted_docs)
+
+
+def _build_ranked_document_context(question: str, extracted_docs: list[dict]) -> str:
+    ranked_chunks = rank_relevant_chunks(question, extracted_docs, 8)
+    if ranked_chunks:
+        blocks = []
+        for index, chunk in enumerate(ranked_chunks, start=1):
+            blocks.append(
+                "\n".join(
+                    [
+                        f"[관련 구간 {index}]",
+                        f"파일명: {chunk.get('filename', 'unknown')}",
+                        f"형식: {chunk.get('format', 'unknown')}",
+                        f"구간: {chunk.get('chunk_index')}",
+                        f"관련도: {chunk.get('score')}",
+                        "본문:",
+                        _clip(chunk.get("text", ""), 3000),
+                    ]
+                )
+            )
+        return _clip("\n\n".join(blocks))
+
     blocks = []
     for index, doc in enumerate(extracted_docs, start=1):
         blocks.append(
@@ -30,7 +55,7 @@ def _build_document_context(extracted_docs: list[dict]) -> str:
 
 
 def _build_prompts(question: str, extracted_docs: list[dict]) -> tuple[str, str]:
-    document_context = _build_document_context(extracted_docs)
+    document_context = _build_ranked_document_context(question, extracted_docs)
     system_prompt = (
         "너는 논문과 연구자료를 분석하는 한국어 리서치 어시스턴트다. "
         "업로드된 문서 텍스트만 근거로 답하고, 없는 내용은 추정하지 말고 '문서에서 확인되지 않음'이라고 말한다. "

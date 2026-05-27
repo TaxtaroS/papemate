@@ -49,6 +49,94 @@ class AuthResponse(BaseModel):
     user: AuthUser
 
 
+class StoredFile(BaseModel):
+    """추후 project_files 컬렉션으로 분리할 파일 메타데이터 초안입니다."""
+
+    id: str | None = None
+    projectId: str
+    name: str
+    size: int | None = None
+    type: str | None = None
+    lastModified: int | None = None
+    storagePath: str | None = None
+    uploadedBy: str | None = None
+    createdAt: str | None = None
+
+
+class ChatMessage(BaseModel):
+    """추후 project_threads 컬렉션으로 분리할 분석 대화 메시지 초안입니다."""
+
+    id: str
+    projectId: str
+    role: str
+    text: str = ""
+    user: str | None = None
+    createdAt: str | None = None
+    sourceType: str | None = None
+    rows: list[dict[str, Any]] | None = None
+
+
+class VisualAsset(BaseModel):
+    """추후 visual_assets 컬렉션으로 분리할 시각화 자료 초안입니다."""
+
+    id: str
+    projectId: str
+    projectTitle: str | None = None
+    kind: str
+    title: str
+    desc: str | None = None
+    details: list[Any] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    dataUrl: str | None = None
+    saved: bool = False
+    date: str | None = None
+    createdAt: str | None = None
+
+
+class SourceProjectRef(BaseModel):
+    """공유 분석 카드가 참조한 원본 프로젝트 정보입니다."""
+
+    id: str
+    title: str
+    inviteCode: str | None = None
+
+
+class SharedRoomMember(BaseModel):
+    """추후 shared_rooms.members 안에 들어갈 참여자 초안입니다."""
+
+    id: str | int
+    name: str
+    role: str | None = None
+    joinedAt: str | None = None
+
+
+class SharedRoomDraft(BaseModel):
+    """추후 shared_rooms 컬렉션으로 분리할 공유방 문서 초안입니다."""
+
+    inviteCode: str
+    joinedCode: str | None = None
+    mainProjectId: str | None = None
+    loadedProjectIds: list[str] = Field(default_factory=list)
+    members: list[SharedRoomMember] = Field(default_factory=list)
+    createdBy: str | None = None
+    createdAt: str | None = None
+    updatedAt: str | None = None
+
+
+class DiscussionComment(BaseModel):
+    """추후 discussion_comments 컬렉션으로 분리할 공유 토론 댓글 초안입니다."""
+
+    id: str
+    roomInviteCode: str
+    projectId: str | None = None
+    projectTitle: str | None = None
+    assetId: str | None = None
+    user: str
+    text: str
+    time: str | None = None
+    createdAt: str | None = None
+
+
 class ProjectPayload(BaseModel):
     # 프론트 프로젝트 카드/분석/공유 데이터는 아직 형태가 자주 바뀌므로
     # MongoDB에는 JSON 객체 전체를 저장하고, 화면 안정화 후 세부 스키마를 고정합니다.
@@ -98,6 +186,7 @@ class AnalysisResponse(BaseModel):
     documents: list[dict[str, Any]] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     metrics: list[str] = Field(default_factory=list)
+    relevant_chunks: list[dict[str, Any]] = Field(default_factory=list)
     intent: str | None = None
     llm_used: bool = False
     provider: str | None = None
