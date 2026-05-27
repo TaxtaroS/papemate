@@ -2,15 +2,21 @@
 // TypeScript 변경 표시: 기존 JS 로직은 유지하면서 함수 인자와 화면 props에 실제 타입을 붙여 TypeScript 검사를 통과하게 했습니다.
 // 초보자 안내: 사용자가 실제로 보게 되는 한 화면 단위의 React 페이지 컴포넌트입니다.
 
-import React, { useEffect, useState } from 'react';
-import Sidebar from '../components/Sidebar';
-import { FiBarChart2, FiChevronRight, FiCopy, FiFileText, FiUsers } from 'react-icons/fi';
-import AuthModal from '../components/AuthModal';
-import MypageC from './Mypage';
-import ShareC from './Share';
-import AnalysisC from './Analysis';
-import Project from './Project';
-import { useAuth } from '../context/AuthContext';
+import React, { useEffect, useState } from "react";
+import Sidebar from "../components/Sidebar";
+import {
+  FiBarChart2,
+  FiChevronRight,
+  FiCopy,
+  FiFileText,
+  FiUsers,
+} from "react-icons/fi";
+import AuthModal from "../components/AuthModal";
+import MypageC from "./Mypage";
+import ShareC from "./Share";
+import AnalysisC from "./Analysis";
+import Project from "./Project";
+import { useAuth } from "../context/AuthContext";
 import {
   Container,
   SidebarSlot,
@@ -21,27 +27,34 @@ import {
   DashboardBrand,
   GridContainer,
   FeatureCard,
-} from './styles/Home.styles';
-import { getProjectsKey, getRecentConversationsKey, readJson, writeJson } from '../utils/storageKeys';
-import papermateLogo from '../assets/papermate-logo.png';
+} from "./styles/Home.styles";
+import {
+  getProjectsKey,
+  getRecentConversationsKey,
+  readJson,
+  writeJson,
+} from "../utils/storageKeys";
+import papermateLogo from "../assets/papermate-logo.png";
 
 const VIEW = {
-  MAIN: 'main',
-  SHARE: '공유',
-  ANALYSIS: '분석 비교',
-  PROJECTS: '내 프로젝트',
-  MYPAGE: '마이페이지',
+  MAIN: "main",
+  SHARE: "공유",
+  ANALYSIS: "분석 비교",
+  PROJECTS: "내 프로젝트",
+  MYPAGE: "마이페이지",
 };
 
 const VIEW_TO_ROUTE = {
-  [VIEW.MAIN]: 'home',
-  [VIEW.SHARE]: 'share',
-  [VIEW.ANALYSIS]: 'analysis',
-  [VIEW.PROJECTS]: 'projects',
-  [VIEW.MYPAGE]: 'mypage',
+  [VIEW.MAIN]: "home",
+  [VIEW.SHARE]: "share",
+  [VIEW.ANALYSIS]: "analysis",
+  [VIEW.PROJECTS]: "projects",
+  [VIEW.MYPAGE]: "mypage",
 };
 
-const ROUTE_TO_VIEW = Object.fromEntries(Object.entries(VIEW_TO_ROUTE).map(([view, route]) => [route, view]));
+const ROUTE_TO_VIEW = Object.fromEntries(
+  Object.entries(VIEW_TO_ROUTE).map(([view, route]) => [route, view]),
+);
 
 interface NavigateOptions {
   replace?: boolean;
@@ -50,7 +63,7 @@ interface NavigateOptions {
 }
 
 const getViewFromLocation = () => {
-  const route = new URLSearchParams(window.location.search).get('view');
+  const route = new URLSearchParams(window.location.search).get("view");
   return ROUTE_TO_VIEW[route] || VIEW.MAIN;
 };
 
@@ -83,14 +96,14 @@ const syncBrowserHistory = (view, replace = false) => {
   const url = new URL(window.location.href);
   const route = VIEW_TO_ROUTE[view] || VIEW_TO_ROUTE[VIEW.MAIN];
 
-  if (route === VIEW_TO_ROUTE[VIEW.MAIN]) url.searchParams.delete('view');
-  else url.searchParams.set('view', route);
+  if (route === VIEW_TO_ROUTE[VIEW.MAIN]) url.searchParams.delete("view");
+  else url.searchParams.set("view", route);
 
   const nextUrl = `${url.pathname}${url.search}${url.hash}`;
   const state = { ...(window.history.state || {}), papermateView: view };
 
-  if (replace) window.history.replaceState(state, '', nextUrl);
-  else window.history.pushState(state, '', nextUrl);
+  if (replace) window.history.replaceState(state, "", nextUrl);
+  else window.history.pushState(state, "", nextUrl);
 };
 
 function Home() {
@@ -103,16 +116,24 @@ function Home() {
   const [viewMode, setViewMode] = useState(getViewFromLocation);
   const [restoredData, setRestoredData] = useState(null);
   const [shareOpenData, setShareOpenData] = useState(null);
-  const [recentConversations, setRecentConversations] = useState(loadRecentConversations);
+  const [recentConversations, setRecentConversations] = useState(
+    loadRecentConversations,
+  );
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
-  const [formData, setFormData] = useState({ id: '', pw: '', confirmPw: '' });
-  const [authError, setAuthError] = useState('');
+  const [formData, setFormData] = useState({ id: "", pw: "", confirmPw: "" });
+  const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [modalMode, setModalMode] = useState(null);
-  const [analysisSessionKey, setAnalysisSessionKey] = useState(() => `analysis-${Date.now()}`);
+  const [analysisSessionKey, setAnalysisSessionKey] = useState(
+    () => `analysis-${Date.now()}`,
+  );
 
   const navigateToView = (nextView, options: NavigateOptions = {}) => {
-    const { replace = false, clearRestoredData = false, clearShareOpenData = false } = options;
+    const {
+      replace = false,
+      clearRestoredData = false,
+      clearShareOpenData = false,
+    } = options;
 
     if (clearRestoredData) setRestoredData(null);
     if (clearShareOpenData) setShareOpenData(null);
@@ -132,22 +153,23 @@ function Home() {
       }
     };
 
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const syncRecents = (event) => {
-      if (event.detail?.key && event.detail.key !== getRecentConversationsKey()) return;
+      if (event.detail?.key && event.detail.key !== getRecentConversationsKey())
+        return;
       setRecentConversations(loadRecentConversations());
     };
 
-    window.addEventListener('storage', syncRecents);
-    window.addEventListener('papermate-storage-updated', syncRecents);
+    window.addEventListener("storage", syncRecents);
+    window.addEventListener("papermate-storage-updated", syncRecents);
     return () => {
-      window.removeEventListener('storage', syncRecents);
-      window.removeEventListener('papermate-storage-updated', syncRecents);
+      window.removeEventListener("storage", syncRecents);
+      window.removeEventListener("papermate-storage-updated", syncRecents);
     };
   }, []);
 
@@ -162,37 +184,45 @@ function Home() {
   const handleInputChange = (event) => {
     const { name, value } = event.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-    setAuthError('');
+    setAuthError("");
   };
 
   const handleMenuRouting = (menuName) => {
-    const protectedMenus = [VIEW.SHARE, VIEW.ANALYSIS, VIEW.PROJECTS, VIEW.MYPAGE, '프로필'];
+    const protectedMenus = [
+      VIEW.SHARE,
+      VIEW.ANALYSIS,
+      VIEW.PROJECTS,
+      VIEW.MYPAGE,
+      "프로필",
+    ];
 
     if (!isLoggedIn && protectedMenus.includes(menuName)) {
-      setModalMode('recommend');
+      setModalMode("recommend");
       return;
     }
 
-    if (menuName === VIEW.SHARE) navigateToView(VIEW.SHARE, { clearShareOpenData: true });
+    if (menuName === VIEW.SHARE)
+      navigateToView(VIEW.SHARE, { clearShareOpenData: true });
     else if (menuName === VIEW.ANALYSIS) {
       setAnalysisSessionKey(`analysis-${Date.now()}`);
       navigateToView(VIEW.ANALYSIS, { clearRestoredData: true });
     } else if (menuName === VIEW.PROJECTS) navigateToView(VIEW.PROJECTS);
-    else if (menuName === VIEW.MYPAGE || menuName === '프로필') navigateToView(VIEW.MYPAGE);
-    else if (menuName === '새 채팅') {
+    else if (menuName === VIEW.MYPAGE || menuName === "프로필")
+      navigateToView(VIEW.MYPAGE);
+    else if (menuName === "새 채팅") {
       setAnalysisSessionKey(`analysis-${Date.now()}`);
       navigateToView(VIEW.ANALYSIS, { clearRestoredData: true });
     }
   };
 
   const openLoginPopup = () => {
-    setAuthError('');
-    setModalMode('login');
+    setAuthError("");
+    setModalMode("login");
   };
 
   const openSignupPopup = () => {
-    setAuthError('');
-    setModalMode('signup');
+    setAuthError("");
+    setModalMode("signup");
   };
 
   const submitAuthRequest = async (mode) => {
@@ -200,28 +230,28 @@ function Home() {
     const passwordInput = formData.pw;
 
     if (!usernameInput || !passwordInput) {
-      setAuthError('아이디와 비밀번호를 입력해주세요.');
+      setAuthError("아이디와 비밀번호를 입력해주세요.");
       return;
     }
 
-    if (mode === 'signup' && passwordInput !== formData.confirmPw) {
-      setAuthError('비밀번호 확인이 일치하지 않습니다.');
+    if (mode === "signup" && passwordInput !== formData.confirmPw) {
+      setAuthError("비밀번호 확인이 일치하지 않습니다.");
       return;
     }
 
     setAuthLoading(true);
-    setAuthError('');
+    setAuthError("");
 
     try {
-      if (mode === 'login') {
+      if (mode === "login") {
         await login(usernameInput, passwordInput);
-        window.alert('로그인되었습니다.');
+        window.alert("로그인되었습니다.");
       } else {
         await signup(usernameInput, passwordInput);
-        window.alert('회원가입이 완료되었습니다.');
+        window.alert("회원가입이 완료되었습니다.");
       }
       setModalMode(null);
-      setFormData({ id: '', pw: '', confirmPw: '' });
+      setFormData({ id: "", pw: "", confirmPw: "" });
     } catch (error) {
       setAuthError(getAuthErrorMessage(error, mode));
     } finally {
@@ -231,12 +261,16 @@ function Home() {
 
   const handleAbsoluteLogout = () => {
     logout();
-    navigateToView(VIEW.MAIN, { replace: true, clearRestoredData: true, clearShareOpenData: true });
+    navigateToView(VIEW.MAIN, {
+      replace: true,
+      clearRestoredData: true,
+      clearShareOpenData: true,
+    });
   };
 
   const handleTimelineRestoreJump = (historyData) => {
     if (!isLoggedIn) {
-      setModalMode('recommend');
+      setModalMode("recommend");
       return;
     }
     setRestoredData(historyData);
@@ -245,7 +279,7 @@ function Home() {
 
   const handleProjectRestoreJump = (projectData) => {
     if (!isLoggedIn) {
-      setModalMode('recommend');
+      setModalMode("recommend");
       return;
     }
     setRestoredData(projectData);
@@ -254,7 +288,7 @@ function Home() {
 
   const handleSharedProjectOpen = (projectData) => {
     if (!isLoggedIn) {
-      setModalMode('recommend');
+      setModalMode("recommend");
       return;
     }
     setShareOpenData(projectData);
@@ -264,13 +298,22 @@ function Home() {
   const handleRecentConversationClick = (conversation) => {
     const projects = readJson(getProjectsKey(), []);
     const project = Array.isArray(projects)
-      ? projects.find((item) => item.id === conversation.projectId || item.id === conversation.id)
+      ? projects.find(
+          (item) =>
+            item.id === conversation.projectId || item.id === conversation.id,
+        )
       : null;
     const thread = Array.isArray(project?.thread)
       ? project.thread
-      : (Array.isArray(conversation.thread) ? conversation.thread : []);
-    const lastUserMessage = [...thread].reverse().find((item) => item.role === 'user');
-    const lastAiMessage = [...thread].reverse().find((item) => item.role === 'ai' || item.role === 'asset');
+      : Array.isArray(conversation.thread)
+        ? conversation.thread
+        : [];
+    const lastUserMessage = [...thread]
+      .reverse()
+      .find((item) => item.role === "user");
+    const lastAiMessage = [...thread]
+      .reverse()
+      .find((item) => item.role === "ai" || item.role === "asset");
 
     if (!conversation.question && !project) {
       navigateToView(VIEW.ANALYSIS);
@@ -281,29 +324,37 @@ function Home() {
       projectId: project?.id || conversation.projectId || conversation.id,
       conversationId: conversation.conversationId || conversation.id,
       q: lastUserMessage?.text || conversation.question || project?.title,
-      a: lastAiMessage?.text || `"${conversation.title}" 프로젝트로 저장된 최근 분석 대화입니다.`,
+      a:
+        lastAiMessage?.text ||
+        `"${conversation.title}" 프로젝트로 저장된 최근 분석 대화입니다.`,
       projectTitle: project?.title || conversation.title,
       inviteCode: project?.inviteCode || conversation.inviteCode,
       files: project?.files || conversation.files || [],
       thread,
     });
-    setAnalysisSessionKey(`analysis-${conversation.conversationId || conversation.id || conversation.projectId || Date.now()}`);
+    setAnalysisSessionKey(
+      `analysis-${conversation.conversationId || conversation.id || conversation.projectId || Date.now()}`,
+    );
     navigateToView(VIEW.ANALYSIS);
   };
 
   const handleDeleteRecent = (id, event) => {
     event?.stopPropagation();
-    if (!window.confirm('이 최근 대화 기록을 삭제하시겠습니까?')) return;
+    if (!window.confirm("이 최근 대화 기록을 삭제하시겠습니까?")) return;
 
     const updatedRecents = recentConversations.filter((item) => item.id !== id);
     setRecentConversations(updatedRecents);
     writeJson(getRecentConversationsKey(), updatedRecents);
 
-    const activeId = restoredData?.conversationId || restoredData?.projectId || restoredData?.id;
+    const activeId =
+      restoredData?.conversationId ||
+      restoredData?.projectId ||
+      restoredData?.id;
     if (activeId === id) {
       setRestoredData(null);
       setAnalysisSessionKey(`analysis-${Date.now()}`);
-      if (viewMode === VIEW.ANALYSIS) navigateToView(VIEW.ANALYSIS, { clearRestoredData: true });
+      if (viewMode === VIEW.ANALYSIS)
+        navigateToView(VIEW.ANALYSIS, { clearRestoredData: true });
     }
   };
 
@@ -311,7 +362,8 @@ function Home() {
     const updatedRecents = loadRecentConversations();
     setRecentConversations(updatedRecents);
     const nextConversation = updatedRecents.find(
-      (item) => item.id === conversationId || item.conversationId === conversationId
+      (item) =>
+        item.id === conversationId || item.conversationId === conversationId,
     );
     if (nextConversation) {
       setRestoredData((prev) => ({
@@ -327,15 +379,28 @@ function Home() {
     }
   };
 
-  const isFullView = [VIEW.SHARE, VIEW.ANALYSIS, VIEW.PROJECTS, VIEW.MYPAGE].includes(viewMode);
-  const activeConversationId = viewMode === VIEW.ANALYSIS
-    ? (restoredData?.conversationId || restoredData?.projectId || restoredData?.id || null)
-    : null;
+  const isFullView = [
+    VIEW.SHARE,
+    VIEW.ANALYSIS,
+    VIEW.PROJECTS,
+    VIEW.MYPAGE,
+  ].includes(viewMode);
+  const activeConversationId =
+    viewMode === VIEW.ANALYSIS
+      ? restoredData?.conversationId ||
+        restoredData?.projectId ||
+        restoredData?.id ||
+        null
+      : null;
 
   useEffect(() => {
     if (loading || isLoggedIn || !isFullView) return;
-    setModalMode('recommend');
-    navigateToView(VIEW.MAIN, { replace: true, clearRestoredData: true, clearShareOpenData: true });
+    setModalMode("recommend");
+    navigateToView(VIEW.MAIN, {
+      replace: true,
+      clearRestoredData: true,
+      clearShareOpenData: true,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, isLoggedIn, isFullView]);
 
@@ -355,11 +420,16 @@ function Home() {
         <Sidebar
           viewMode={viewMode}
           onMenuClick={handleMenuRouting}
-          onLogoClick={() => navigateToView(VIEW.MAIN, { clearRestoredData: true, clearShareOpenData: true })}
+          onLogoClick={() =>
+            navigateToView(VIEW.MAIN, {
+              clearRestoredData: true,
+              clearShareOpenData: true,
+            })
+          }
           isLoggedIn={isLoggedIn}
-          username={user?.username || 'Guest'}
-          userProfileImage={user?.profileImage || ''}
-          onProfileClick={() => handleMenuRouting('프로필')}
+          username={user?.username || "Guest"}
+          userProfileImage={user?.profileImage || ""}
+          onProfileClick={() => handleMenuRouting("프로필")}
           collapsed={isSidebarCollapsed}
           onCollapse={() => setIsSidebarCollapsed(true)}
           recentConversations={recentConversations}
@@ -369,7 +439,10 @@ function Home() {
         />
       </SidebarSlot>
 
-      <MainContent $isFullView={isFullView} $sidebarCollapsed={isSidebarCollapsed}>
+      <MainContent
+        $isFullView={isFullView}
+        $sidebarCollapsed={isSidebarCollapsed}
+      >
         {!isFullView && (
           <TopAuth>
             {isLoggedIn ? (
@@ -387,42 +460,101 @@ function Home() {
           <MainDashboard>
             {isSidebarCollapsed && (
               <DashboardBrand onClick={() => navigateToView(VIEW.MAIN)}>
-                <img className="logo-image" src={papermateLogo} alt="PaperMate" />
+                <img
+                  className="logo-image"
+                  src={papermateLogo}
+                  alt="PaperMate"
+                />
               </DashboardBrand>
             )}
-            <h2>논문 읽는 시간을 1/10로,<br />작업의 깊이는 2배로</h2>
+            <h2>
+              논문 읽는 시간을 1/10로,
+              <br />
+              작업의 깊이는 2배로
+            </h2>
             <div className="sub">
-              HWP, PDF 등 다양한 형식의 논문을 올리면 AI가 핵심을 분석하고<br />
+              HWP, PDF 등 다양한 형식의 논문을 올리면 AI가 핵심을 분석하고
+              <br />
               팀원과 실시간으로 공유할 수 있어요.
             </div>
-
+          
             <GridContainer>
-              <FeatureCard onClick={() => handleMenuRouting(VIEW.ANALYSIS)}>
-                <div className="icon-box"><FiFileText /></div>
-                <div className="text-box"><h4>문서 분석 · 요약</h4><p>HWP, HWPX, PDF 문서의 핵심 내용을 추출하고 요약합니다.</p></div>
+              {/* 첫 번째 카드: 문서 분석 (📑 이모지) */}
+              <FeatureCard
+                onClick={() => handleMenuRouting(VIEW.ANALYSIS)}
+                $bgGradient="linear-gradient(135deg, #e0f2f1 0%, #b2dfdb 100%)"
+              >
+                <div className="floating-emoji">📑</div>
+
+                <div className="content-wrapper">
+                  <div className="icon-box">
+                    <FiFileText />
+                  </div>
+                  <div className="text-box">
+                    <h4>문서 분석 · 요약</h4>
+                    <p>
+                      HWP, HWPX, PDF 문서의 핵심 내용을 추출하고 요약합니다.
+                    </p>
+                  </div>
+                </div>
               </FeatureCard>
-              <FeatureCard onClick={() => handleMenuRouting(VIEW.ANALYSIS)}>
-                <div className="icon-box"><FiCopy /></div>
-                <div className="text-box"><h4>다중문서 비교</h4><p>여러 문서를 비교하고 차이점을 시각화합니다.</p></div>
+
+              {/* 두 번째 카드: 데이터 시각화 (📊 이모지) */}
+              <FeatureCard
+                onClick={() => handleMenuRouting(VIEW.PROJECTS)}
+                $bgGradient="linear-gradient(135deg, #fff9c4 0%, #ffecb3 100%)"
+              >
+                <div className="floating-emoji">📊</div>
+
+                <div className="content-wrapper">
+                  <div className="icon-box">
+                    <FiBarChart2 />
+                  </div>
+                  <div className="text-box">
+                    <h4>데이터 시각화</h4>
+                    <p>문서 속 데이터를 차트와 그래프로 변환합니다.</p>
+                  </div>
+                </div>
               </FeatureCard>
-              <FeatureCard onClick={() => handleMenuRouting(VIEW.PROJECTS)}>
-                <div className="icon-box"><FiBarChart2 /></div>
-                <div className="text-box"><h4>데이터 시각화</h4><p>문서 속 데이터를 차트와 그래프로 변환합니다.</p></div>
-              </FeatureCard>
-              <FeatureCard onClick={() => handleMenuRouting(VIEW.SHARE)}>
-                <div className="icon-box"><FiUsers /></div>
-                <div className="text-box"><h4>작업공간</h4><p>초대 코드로 팀원을 초대하고 분석 결과를 함께 검토합니다.</p></div>
+
+              {/* 세 번째 카드: 작업공간 (🚀 이모지) */}
+              <FeatureCard
+                onClick={() => handleMenuRouting(VIEW.SHARE)}
+                $bgGradient="linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)"
+              >
+                <div className="floating-emoji">🚀</div>
+
+                <div className="content-wrapper">
+                  <div className="icon-box">
+                    <FiUsers />
+                  </div>
+                  <div className="text-box">
+                    <h4>작업공간</h4>
+                    <p>
+                      초대 코드로 팀원을 초대하고 분석 결과를 함께 검토합니다.
+                    </p>
+                  </div>
+                </div>
               </FeatureCard>
             </GridContainer>
           </MainDashboard>
         )}
 
         {viewMode === VIEW.PROJECTS && (
-          <Project onProjectRestore={handleProjectRestoreJump} onShareProjectOpen={handleSharedProjectOpen} />
+          <Project
+            onProjectRestore={handleProjectRestoreJump}
+            onShareProjectOpen={handleSharedProjectOpen}
+          />
         )}
-        {viewMode === VIEW.MYPAGE && <MypageC onLogoutClick={handleAbsoluteLogout} />}
+        {viewMode === VIEW.MYPAGE && (
+          <MypageC onLogoutClick={handleAbsoluteLogout} />
+        )}
         {viewMode === VIEW.SHARE && (
-          <ShareC onRestoreTrigger={handleTimelineRestoreJump} username={user?.username} initialProject={shareOpenData} />
+          <ShareC
+            onRestoreTrigger={handleTimelineRestoreJump}
+            username={user?.username}
+            initialProject={shareOpenData}
+          />
         )}
         {viewMode === VIEW.ANALYSIS && (
           <AnalysisC
@@ -438,8 +570,8 @@ function Home() {
           setModalMode={setModalMode}
           formData={formData}
           onInputChange={handleInputChange}
-          onLoginSubmit={() => submitAuthRequest('login')}
-          onSignupSubmit={() => submitAuthRequest('signup')}
+          onLoginSubmit={() => submitAuthRequest("login")}
+          onSignupSubmit={() => submitAuthRequest("signup")}
           authError={authError}
           authLoading={authLoading}
         />
