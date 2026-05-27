@@ -52,7 +52,11 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const requestUrl = error.config?.url || '';
+    const isAuthSubmitRequest =
+      requestUrl.includes('/api/auth/login') || requestUrl.includes('/api/auth/signup');
+
+    if (error.response?.status === 401 && !isAuthSubmitRequest) {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('isLoggedIn');
       localStorage.removeItem('username');

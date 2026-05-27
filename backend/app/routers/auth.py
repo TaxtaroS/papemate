@@ -60,8 +60,11 @@ async def login(payload: LoginRequest):
     username = payload.username.strip()
     user = await db.users.find_one({"username": username})
 
-    if not user or not verify_password(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="등록되지 않은 아이디입니다.")
+
+    if not verify_password(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="비밀번호가 올바르지 않습니다.")
 
     token = create_access_token(str(user["_id"]))
     return AuthResponse(access_token=token, user=serialize_user(user))

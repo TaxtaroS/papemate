@@ -5,17 +5,19 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [
-    react({
-      babel: {
-        // TypeScript 변경 표시: Vite의 React 빌드 과정에 React Compiler를 연결합니다.
-        plugins: ['babel-plugin-react-compiler'],
-      },
-    }),
+    // React Compiler는 선택 최적화 플러그인입니다.
+    // 패키지 설치가 꼬이면 개발 서버가 시작되지 않으므로 기본 React 플러그인만 사용합니다.
+    react(),
   ],
   server: {
-    port: 5173,
+    host: '127.0.0.1',
+    port: 3000,
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': 'http://127.0.0.1:8000',
     },
+  },
+  preview: {
+    host: '127.0.0.1',
+    port: 3000,
   },
 });

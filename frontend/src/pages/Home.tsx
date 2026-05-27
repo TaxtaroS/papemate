@@ -67,6 +67,31 @@ const getViewFromLocation = () => {
   return ROUTE_TO_VIEW[route] || VIEW.MAIN;
 };
 
+const getAuthErrorMessage = (error, mode) => {
+  if (!error?.response) {
+    return '백엔드 서버와 연결할 수 없습니다. FastAPI 서버가 켜져 있는지 확인해주세요.';
+  }
+
+  const status = error.response.status;
+  const detail = error.response.data?.detail;
+
+  if (mode === 'login') {
+    if (status === 404) return '등록되지 않은 아이디입니다. 아이디를 확인하거나 회원가입을 진행해주세요.';
+    if (status === 401) return '비밀번호가 올바르지 않습니다. 다시 입력해주세요.';
+  }
+
+  if (mode === 'signup') {
+    if (status === 409) return '이미 사용 중인 아이디입니다. 다른 아이디를 입력해주세요.';
+    if (status === 422) return '아이디는 3자 이상, 비밀번호는 4자 이상으로 입력해주세요.';
+  }
+
+  if (status === 0 || status >= 500) {
+    return '서버 처리 중 문제가 발생했습니다. 백엔드 터미널 로그를 확인해주세요.';
+  }
+
+  return detail || error.message || '요청을 처리하지 못했습니다.';
+};
+
 const syncBrowserHistory = (view, replace = false) => {
   const url = new URL(window.location.href);
   const route = VIEW_TO_ROUTE[view] || VIEW_TO_ROUTE[VIEW.MAIN];
@@ -228,11 +253,7 @@ function Home() {
       setModalMode(null);
       setFormData({ id: "", pw: "", confirmPw: "" });
     } catch (error) {
-      setAuthError(
-        error.response?.data?.detail ||
-          error.message ||
-          "서버와 연결할 수 없습니다.",
-      );
+      setAuthError(getAuthErrorMessage(error, mode));
     } finally {
       setAuthLoading(false);
     }
