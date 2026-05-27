@@ -84,18 +84,28 @@ export const TopAuth = styled.div`
 `;
 
 export const MainDashboard = styled.div`
-  flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 40px; box-sizing: border-box; position: relative;
+  flex: 1; 
+  display: flex; 
+  flex-direction: column; 
+  justify-content: center; 
+  align-items: center; 
+  padding: 40px; 
+  box-sizing: border-box; 
+  position: relative;
+  
   h2 { 
-    font-size: 30px; font-weight: 800; color: ${palette.slate[8]}; text-align: center; margin-bottom: 12px; line-height: 1.4; 
+    font-size: 30px; font-weight: 800; color: #1e293b; text-align: center; margin-bottom: 12px; line-height: 1.4; 
     letter-spacing: -0.5px; 
   }
+  
   .sub { 
-    font-size: 14px; color: ${palette.slate[5]}; text-align: center; margin-bottom: 36px; line-height: 1.6; 
+    font-size: 14px; color: #475569; text-align: center; margin-bottom: 36px; line-height: 1.6; 
   }
 
   @media (max-width: 760px) {
     justify-content: flex-start;
-    padding: 28px 0;
+    /* 💡 화면이 작아졌을 때 위쪽 여백(padding-top)을 넉넉하게 줘서 답답함을 없앱니다. */
+    padding: 50px 20px 30px 20px; 
 
     h2 {
       font-size: 24px;
@@ -125,9 +135,13 @@ export const DashboardBrand = styled.div`
     object-fit: contain;
   }
 
-  @media (max-width: 560px) {
-    top: -20px;
-    left: 20px;
+  @media (max-width: 760px) {
+    /* 💡 모바일에서는 강제 위치(absolute)를 해제하고 문서 흐름에 맞게 배치합니다. */
+    position: relative; 
+    top: 0;
+    left: 0;
+    margin-bottom: 20px; /* 로고와 밑에 있는 H2 제목 사이의 간격 */
+    align-self: center;  /* 로고를 화면 중앙으로 예쁘게 정렬 */
 
     .logo-image {
       width: 150px;
@@ -137,47 +151,111 @@ export const DashboardBrand = styled.div`
 `;
 
 export const GridContainer = styled.div`
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; width: 100%; max-width: 800px; margin-bottom: 36px;
+  // 💡 기존 grid 대신 flexbox를 사용하여 가로 배치
+  display: flex; 
+  gap: 20px; 
+  width: 100%; 
+  max-width: 1000px; // 3개가 넉넉히 들어가도록 최대 너비 확장
+  height: 280px;     // 카드의 일정한 높이 고정 (필요에 따라 조절)
+  margin-bottom: 36px;
 
   @media (max-width: 760px) {
-    grid-template-columns: 1fr;
+    // 모바일에서는 세로로 배치하고 아코디언 효과 대신 기본 형태로 변경
+    flex-direction: column;
+    height: auto;
     gap: 14px;
     margin-bottom: 24px;
   }
 `;
 
-export const FeatureCard = styled.div`
-  background: white; 
-  border: 1px solid ${palette.slate[2]}; 
-  border-radius: 16px; padding: 24px; display: flex; gap: 16px; cursor: pointer; transition: all 0.2s ease-in-out;
+// Home.styles.ts 내 FeatureCard 부분 수정
+
+export const FeatureCard = styled.div<{ $bgGradient?: string }>`
+  background: ${props => props.$bgGradient || 'white'}; 
+  border: 1px solid rgba(255, 255, 255, 0.5); 
+  border-radius: 20px; 
+  padding: 24px; 
+  display: flex; 
+  flex-direction: column; 
+  justify-content: flex-end; 
+  position: relative; /* 💡 이모지를 고정하기 위해 필수 */
+  overflow: hidden;   /* 💡 이모지가 카드 밖으로 튀어나가지 않게 필수 */
+  cursor: pointer; 
   
+  flex: 1; 
+  transition: flex 0.4s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s, transform 0.2s;
+
   &:hover { 
-    transform: translateY(-2px); 
-    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.04); 
-    border-color: ${palette.slate[3]};   
+    flex: 2.5; 
+    box-shadow: 0 15px 30px -5px rgba(0,0,0,0.08); 
+    transform: translateY(-4px); 
   }
-  
+
+  .content-wrapper {
+    position: relative;
+    z-index: 2; /* 글자가 이모지 위로 오도록 */
+  }
+
   .icon-box { 
     width: 44px; height: 44px; border-radius: 12px; 
-    background: ${palette.teal[0]};       
-    color: ${palette.teal[5]};            
-    display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; 
+    background: rgba(255, 255, 255, 0.6); 
+    color: #0d9488;            
+    display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+    margin-bottom: 16px; 
+    backdrop-filter: blur(4px); 
   }
   
+  /* 💡 글자가 아이콘 영역을 침범하지 않도록 너비 제한 추가 */
+  /* 💡 텍스트가 차지하는 최대 너비를 더 줄여서 여백 확보 */
   .text-box { 
-    h4 { margin: 0 0 6px 0; font-size: 14.5px; font-weight: 800; color: ${palette.slate[8]}; } 
-    p { margin: 0; font-size: 12.5px; color: ${palette.slate[5]}; line-height: 1.5; font-weight: 600; } 
+    width: 64%; /* 75% -> 60%로 줄임 */
+    word-break: keep-all; 
+    
+    h4 { margin: 0 0 8px 0; font-size: 18px; font-weight: 800; color: #1e293b; } 
+    p { margin: 0; font-size: 13px; color: #475569; line-height: 1.5; font-weight: 600; min-height: 60px; } 
   }
 
-  @media (max-width: 560px) {
-    padding: 18px;
-    align-items: flex-start;
+  /* 💡 이모지 크기를 살짝 줄이고, 오른쪽 아래로 더 밀어냄 */
+  .floating-emoji {
+    position: absolute;
+    right: -15px;    /* -15px -> -25px (더 오른쪽으로) */
+    bottom: 0px;   /* -30px -> -40px (더 아래로) */
+    font-size: 120px; /* 130px -> 110px (크기 살짝 축소) */
+    line-height: 1;
+    z-index: 0;      
+    opacity: 0.3;    /* 평소엔 조금 더 연하게 설정 */
+    user-select: none; 
+    text-shadow: 10px 20px 25px rgba(0, 0, 0, 0.15); 
+    transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.4s;
+  }
 
-    .icon-box {
-      width: 38px;
-      height: 38px;
-      border-radius: 10px;
+  /* 마우스를 올렸을 때 애니메이션 */
+  &:hover .floating-emoji {
+    transform: translateY(-15px) scale(1.05) rotate(-8deg);
+    opacity: 0.8;
+  }
+
+  @media (max-width: 760px) {
+    flex: none;
+    height: 120px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 16px;
+    padding: 18px;
+
+    &:hover {
+      flex: none;
+      transform: translateY(-2px);
+    }
+    
+    .icon-box { margin-bottom: 0; }
+    
+    .floating-emoji {
+      font-size: 80px;
+      right: 0px;
+      bottom: -15px;
+      opacity: 0.3; 
     }
   }
 `;
-

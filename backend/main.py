@@ -24,6 +24,7 @@ app = FastAPI(
 
 def _cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "")
+    # 💡 주의: 리스트의 각 항목 끝에는 반드시 쉼표(,)가 있어야 합니다!
     defaults = [
         "http://localhost:3000",
         "http://localhost:3001",
@@ -31,6 +32,8 @@ def _cors_origins() -> list[str]:
         "http://127.0.0.1:3001",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
+        "http://localhost:5173",  
+        "http://127.0.0.1:5173",  
     ]
     custom = [origin.strip() for origin in configured.split(",") if origin.strip()]
     return custom or defaults
