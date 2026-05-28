@@ -157,6 +157,10 @@ export const VisualArtifact = styled.div`
     line-height: 1.55;
   }
 
+  .save-container {
+    width: 100%;
+  }
+
   .save-visual {
     width: 100%;
     min-height: 38px;
@@ -167,6 +171,46 @@ export const VisualArtifact = styled.div`
     font-size: 13px;
     font-weight: 850;
     cursor: pointer;
+    
+    &:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+  }
+
+  &.is-modal {
+    .save-container {
+      display: flex;
+      justify-content: flex-end;
+      padding: 12px 24px;
+      border-top: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+
+    .save-visual {
+      width: auto;
+      min-height: 34px;
+      border: 1px solid #0ea5a4;
+      border-radius: 6px;
+      background: #0ea5a4;
+      color: #ffffff;
+      padding: 0 16px;
+      font-size: 12px;
+      font-weight: 800;
+      border-top: none;
+
+      &:hover {
+        background: #0d9488;
+        border-color: #0d9488;
+      }
+
+      &:disabled {
+        background: #f1f5f9;
+        border-color: #cbd5e1;
+        color: #94a3b8;
+        cursor: not-allowed;
+      }
+    }
   }
 
   .mini-table {
@@ -553,4 +597,30 @@ export const SaveInlinePanel = styled.div`
   }
 `;
 
+export const PreviewModalContainer = styled.div`
+  width: 90%;
+  max-width: 900px;
+  max-height: 90vh;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.2);
+  overflow-y: auto;
+  
+  /* 뷰어 내부 스타일 조정 (기존 VisualArtifact 디자인을 상속하되 더 넓게) */
+  .artifact-head {
+    padding: 20px 24px;
+    h4 {
+      font-size: 18px;
+    }
+  }
+
+  .artifact-body {
+    padding: 24px;
+  }
+
+  .artifact-desc {
+    font-size: 15px;
+    margin-bottom: 24px;
+  }
+`;
 

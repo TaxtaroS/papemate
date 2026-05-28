@@ -11,6 +11,7 @@ import {
   StreamMessageArea,
   TopMenuBar,
   UserRow,
+  ModalBackdrop,
 } from './styles/Analysis.styles';
 import {
   InviteCodePill,
@@ -18,6 +19,7 @@ import {
   SaveInlinePanel,
   VisualArtifact,
   VisualPanel,
+  PreviewModalContainer,
 } from './styles/AnalysisLocal.styles';
 import { analysisAPI, projectAPI } from '../services/api';
 import {
@@ -178,6 +180,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
   const [creatingVisualType, setCreatingVisualType] = useState(null);
   const [isProjectSaveOpen, setIsProjectSaveOpen] = useState(false);
   const [projectNameInput, setProjectNameInput] = useState('');
+  const [selectedVisual, setSelectedVisual] = useState(null);
 
   const currentInviteCode = currentProject?.inviteCode || restoredData?.inviteCode || '저장 후 생성';
 
@@ -625,8 +628,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     );
   };
 
-  const renderVisualArtifact = (asset, compact = false) => (
-    <VisualArtifact>
+  const renderVisualArtifact = (asset, compact = false, isModal = false) => (
+    <VisualArtifact className={isModal ? 'is-modal' : ''}>
       <div className="artifact-head">
         <h4>{asset.title}</h4>
         <span>{asset.saved ? '저장됨' : '생성됨'}</span>
@@ -636,14 +639,16 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
         {renderVisualPreview(asset)}
       </div>
       {!compact && (
-        <button
-          type="button"
-          className="save-visual"
-          onClick={() => saveVisualAssetToProject(asset)}
-          disabled={asset.saved || isSavingProject}
-        >
-          {asset.saved ? '프로젝트에 저장됨' : '프로젝트 시각화 보관함에 저장하기'}
-        </button>
+        <div className="save-container">
+          <button
+            type="button"
+            className="save-visual"
+            onClick={() => saveVisualAssetToProject(asset)}
+            disabled={asset.saved || isSavingProject}
+          >
+            {asset.saved ? '프로젝트에 저장됨' : '프로젝트 시각화 보관함에 저장하기'}
+          </button>
+        </div>
       )}
     </VisualArtifact>
   );
@@ -664,7 +669,12 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
                 <span>아래 버튼으로 표, 그래프, 이미지, 마인드맵을 만들 수 있어요.</span>
               </div>
             ) : visibleVisuals.map((visual, index) => (
-              <div key={`${visual.id}-${index}`} className="asset-item">
+              <div 
+                key={`${visual.id}-${index}`} 
+                className="asset-item"
+                onClick={() => setSelectedVisual(visual)}
+                style={{ cursor: 'pointer' }}
+              >
                 <strong>{visual.title}</strong>
                 <span>{visual.saved ? '프로젝트 보관함 저장됨' : '채팅창에 생성됨'}</span>
                 {renderVisualArtifact(visual, true)}
@@ -799,6 +809,14 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
           </BottomPromptInput>
         </MainQAEngine>
       </MainLayout>
+      
+      {selectedVisual && (
+        <ModalBackdrop onClick={() => setSelectedVisual(null)}>
+          <PreviewModalContainer onClick={(e) => e.stopPropagation()}>
+            {renderVisualArtifact(selectedVisual, false, true)}
+          </PreviewModalContainer>
+        </ModalBackdrop>
+      )}
     </Container>
   );
 }
