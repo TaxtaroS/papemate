@@ -1,0 +1,144 @@
+# 초보자 안내:
+# 백엔드에서 쓰는 환경변수를 한곳에서 읽고 검증하는 설정 파일입니다.
+# 다른 파일들이 os.getenv를 제각각 호출하면 배포 환경에서 값이 어긋나기 쉬워서,
+# 여기의 settings 객체를 공통으로 사용합니다.
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = BACKEND_DIR.parent
+BACKEND_ENV_FILE = BACKEND_DIR / ".env"
+
+# 실행 위치가 project_v1이든 backend이든 항상 backend/.env만 읽습니다.
+load_dotenv(BACKEND_ENV_FILE)
+
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+DEFAULT_JWT_SECRET = "change-this-secret-in-production"
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} 환경변수는 숫자여야 합니다.") from exc
+
+
+def _env_list(name: str, default: list[str]) -> list[str]:
+    configured = os.getenv(name, "")
+    raw_values = configured.split(",") if configured else default
+
+    values: list[str] = []
+    for item in raw_values:
+        normalized = item.strip().rstrip("/")
+        if normalized and normalized not in values:
+            values.append(normalized)
+    return values
+
+
+def _env_path(name: str, default: Path) -> Path:
+    configured = os.getenv(name)
+    if not configured:
+        return default
+    return Path(configured)
+
+
+@dataclass(frozen=True)
+class Settings:
+    app_name: str
+    app_env: str
+    debug: bool
+    enable_api_docs: bool
+    log_level: str
+
+    mongo_url: str
+    mongo_db_name: str
+    mongo_timeout_ms: int
+
+    jwt_secret_key: str
+    access_token_expire_minutes: int
+
+    cors_origins: list[str]
+    frontend_build_dir: Path
+
+    max_upload_mb: int
+    max_upload_files: int
+
+    hwpx_jar: str
+    openai_api_key: str
+    openai_model: str
+    google_api_key: str
+    gemini_api_key: str
+    gemini_model: str
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env in {"prod", "production"}
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * 1024 * 1024
+
+    def validate(self) -> None:
+        if self.is_production and self.jwt_secret_key == DEFAULT_JWT_SECRET:
+            raise RuntimeError("배포 환경에서는 JWT_SECRET_KEY를 반드시 안전한 값으로 변경해야 합니다.")
+        if self.access_token_expire_minutes <= 0:
+            raise RuntimeError("ACCESS_TOKEN_EXPIRE_MINUTES는 1 이상이어야 합니다.")
+        if self.max_upload_mb <= 0:
+            raise RuntimeError("MAX_UPLOAD_MB는 1 이상이어야 합니다.")
+        if self.max_upload_files <= 0:
+            raise RuntimeError("MAX_UPLOAD_FILES는 1 이상이어야 합니다.")
+
+
+def create_settings() -> Settings:
+    settings = Settings(
+        app_name=os.getenv("APP_NAME", "PaperMate API"),
+        app_env=os.getenv("APP_ENV", "development").strip().lower(),
+        debug=_env_bool("DEBUG", False),
+        enable_api_docs=_env_bool("ENABLE_API_DOCS", False),
+        log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
+        mongo_url=os.getenv("MONGO_URL", "mongodb://localhost:27017"),
+        mongo_db_name=os.getenv("MONGO_DB_NAME", "papermate"),
+        mongo_timeout_ms=_env_int("MONGO_TIMEOUT_MS", 2000),
+        jwt_secret_key=os.getenv("JWT_SECRET_KEY", DEFAULT_JWT_SECRET),
+        access_token_expire_minutes=_env_int("ACCESS_TOKEN_EXPIRE_MINUTES", 1440),
+        cors_origins=_env_list("CORS_ORIGINS", DEFAULT_CORS_ORIGINS),
+        frontend_build_dir=_env_path("FRONTEND_BUILD_DIR", PROJECT_ROOT / "frontend" / "dist"),
+        max_upload_mb=_env_int("MAX_UPLOAD_MB", 25),
+        max_upload_files=_env_int("MAX_UPLOAD_FILES", 10),
+        hwpx_jar=os.getenv("HWPX_JAR", "").strip(),
+        openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip(),
+        google_api_key=os.getenv("GOOGLE_API_KEY", "").strip(),
+        gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip(),
+    )
+    settings.validate()
+    return settings
+
+
+settings = create_settings()

@@ -1,7 +1,6 @@
 # 초보자 안내: OpenAI 또는 Gemini 같은 외부 AI API를 호출해 더 자연스러운 분석 답변을 만드는 서비스입니다.
 
-import os
-
+from app.core.config import settings
 from app.services.document_analysis import rank_relevant_chunks
 
 
@@ -93,7 +92,7 @@ def _analyze_with_openai(question: str, extracted_docs: list[dict], api_key: str
     except ModuleNotFoundError:
         return _llm_error("openai 패키지가 설치되어 있지 않습니다.", "openai")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = settings.openai_model
     client = OpenAI(api_key=api_key)
     system_prompt, user_prompt = _build_prompts(question, extracted_docs)
 
@@ -127,7 +126,7 @@ def _analyze_with_google(question: str, extracted_docs: list[dict], api_key: str
     except ModuleNotFoundError:
         return _llm_error("google-genai 패키지가 설치되어 있지 않습니다.", "google")
 
-    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    model = settings.gemini_model
     system_prompt, user_prompt = _build_prompts(question, extracted_docs)
     prompt = f"{system_prompt}\n\n{user_prompt}"
 
@@ -159,12 +158,12 @@ def analyze_with_llm(
     normalized_provider = (provider or "openai").lower()
 
     if normalized_provider == "google":
-        api_key = google_api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        api_key = google_api_key or settings.google_api_key or settings.gemini_api_key
         if not api_key:
             return _llm_error("Google/Gemini API 키가 없어 기본 문서 추출로 응답했습니다.", "google")
         return _analyze_with_google(question, extracted_docs, api_key)
 
-    api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+    api_key = openai_api_key or settings.openai_api_key
     if not api_key:
         return _llm_error("OpenAI API 키가 없어 기본 문서 추출로 응답했습니다.", "openai")
     return _analyze_with_openai(question, extracted_docs, api_key)

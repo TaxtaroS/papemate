@@ -1,6 +1,7 @@
 # 초보자 안내:
 # 프론트엔드와 백엔드가 주고받는 데이터 모양을 Pydantic 모델로 정의한 파일입니다.
-# MongoDB에 최종 저장되는 컬렉션 구조는 backend/DATABASE_SCHEMA.md에 따로 정리했습니다.
+# MongoDB 컬렉션 구조는 지금은 프로젝트 문서 내부에 저장하고,
+# 화면 안정화 후 세부 컬렉션으로 분리할 수 있게 초안 모델을 같이 둡니다.
 
 from typing import Any
 
@@ -50,7 +51,7 @@ class AuthResponse(BaseModel):
 
 
 class StoredFile(BaseModel):
-    """추후 project_files 컬렉션으로 분리할 파일 메타데이터 초안입니다."""
+    """project_files 컬렉션에 저장할 파일 메타데이터입니다."""
 
     id: str | None = None
     projectId: str
@@ -64,7 +65,7 @@ class StoredFile(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    """추후 project_threads 컬렉션으로 분리할 분석 대화 메시지 초안입니다."""
+    """project_threads 컬렉션에 저장할 분석 대화 메시지입니다."""
 
     id: str
     projectId: str
@@ -77,7 +78,7 @@ class ChatMessage(BaseModel):
 
 
 class VisualAsset(BaseModel):
-    """추후 visual_assets 컬렉션으로 분리할 시각화 자료 초안입니다."""
+    """visual_assets 컬렉션에 저장할 시각화 자료입니다."""
 
     id: str
     projectId: str
@@ -102,7 +103,7 @@ class SourceProjectRef(BaseModel):
 
 
 class SharedRoomMember(BaseModel):
-    """추후 shared_rooms.members 안에 들어갈 참여자 초안입니다."""
+    """shared_rooms.members 안에 들어갈 참여자 정보입니다."""
 
     id: str | int
     name: str
@@ -111,7 +112,7 @@ class SharedRoomMember(BaseModel):
 
 
 class SharedRoomDraft(BaseModel):
-    """추후 shared_rooms 컬렉션으로 분리할 공유방 문서 초안입니다."""
+    """shared_rooms 컬렉션에 저장할 공유방 문서입니다."""
 
     inviteCode: str
     joinedCode: str | None = None
@@ -124,7 +125,7 @@ class SharedRoomDraft(BaseModel):
 
 
 class DiscussionComment(BaseModel):
-    """추후 discussion_comments 컬렉션으로 분리할 공유 토론 댓글 초안입니다."""
+    """discussion_comments 컬렉션에 저장할 공유 토론 댓글입니다."""
 
     id: str
     roomInviteCode: str
@@ -135,6 +136,63 @@ class DiscussionComment(BaseModel):
     text: str
     time: str | None = None
     createdAt: str | None = None
+
+
+class VisualAssetPayload(BaseModel):
+    visual: VisualAsset
+
+
+class VisualAssetResponse(BaseModel):
+    visual: VisualAsset
+
+
+class VisualAssetListResponse(BaseModel):
+    visuals: list[VisualAsset] = Field(default_factory=list)
+
+
+class SharedRoomPayload(BaseModel):
+    room: SharedRoomDraft
+
+
+class SharedRoomResponse(BaseModel):
+    room: SharedRoomDraft
+
+
+class SharedRoomListResponse(BaseModel):
+    rooms: list[SharedRoomDraft] = Field(default_factory=list)
+
+
+class DiscussionCommentPayload(BaseModel):
+    comment: DiscussionComment
+
+
+class DiscussionCommentResponse(BaseModel):
+    comment: DiscussionComment
+
+
+class DiscussionCommentListResponse(BaseModel):
+    comments: list[DiscussionComment] = Field(default_factory=list)
+
+
+class ProjectThreadPayload(BaseModel):
+    messages: list[ChatMessage] = Field(default_factory=list)
+
+
+class ProjectThreadResponse(BaseModel):
+    projectId: str
+    messages: list[ChatMessage] = Field(default_factory=list)
+
+
+class ProjectFilePayload(BaseModel):
+    file: StoredFile
+
+
+class ProjectFileResponse(BaseModel):
+    file: StoredFile
+
+
+class ProjectFileListResponse(BaseModel):
+    files: list[StoredFile] = Field(default_factory=list)
 
 
 class ProjectPayload(BaseModel):

@@ -6,7 +6,15 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
-from app.core.database import db
+from app.core.database import (
+    DISCUSSION_COMMENTS_COLLECTION,
+    PROJECT_FILES_COLLECTION,
+    PROJECT_THREADS_COLLECTION,
+    PROJECTS_COLLECTION,
+    SHARED_ROOMS_COLLECTION,
+    VISUAL_ASSETS_COLLECTION,
+    db,
+)
 from app.core.deps import get_current_user_id
 from app.core.security import create_access_token, hash_password, verify_password
 from models.schemas import (
@@ -153,6 +161,11 @@ async def delete_account(user_id: str = Depends(get_current_user_id)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
 
     try:
-        await db.projects.delete_many({"user_id": user_id})
+        await db[PROJECTS_COLLECTION].delete_many({"user_id": user_id})
+        await db[VISUAL_ASSETS_COLLECTION].delete_many({"user_id": user_id})
+        await db[DISCUSSION_COMMENTS_COLLECTION].delete_many({"user_id": user_id})
+        await db[PROJECT_THREADS_COLLECTION].delete_many({"user_id": user_id})
+        await db[PROJECT_FILES_COLLECTION].delete_many({"user_id": user_id})
+        await db[SHARED_ROOMS_COLLECTION].delete_many({"created_by": user_id})
     except PyMongoError as exc:
         _raise_database_error(exc)

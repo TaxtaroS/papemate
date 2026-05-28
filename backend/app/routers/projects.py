@@ -6,7 +6,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo.errors import PyMongoError
 
-from app.core.database import db
+from app.core.database import (
+    DISCUSSION_COMMENTS_COLLECTION,
+    PROJECT_FILES_COLLECTION,
+    PROJECT_THREADS_COLLECTION,
+    PROJECTS_COLLECTION,
+    VISUAL_ASSETS_COLLECTION,
+    db,
+)
 from app.core.deps import get_current_user_id
 from models.schemas import ProjectListPayload, ProjectListResponse, ProjectPayload, ProjectResponse
 
@@ -49,7 +56,7 @@ def _raise_database_error(exc: PyMongoError) -> None:
 async def list_projects(user_id: str = Depends(get_current_user_id)) -> dict[str, list[dict[str, Any]]]:
     """로그인 사용자의 프로젝트 목록을 MongoDB에서 읽습니다."""
     try:
-        cursor = db.projects.find({"user_id": user_id}).sort("updated_at", -1)
+        cursor = db[PROJECTS_COLLECTION].find({"user_id": user_id}).sort("updated_at", -1)
         docs = [_clean_mongo_doc(doc) async for doc in cursor]
     except PyMongoError as exc:
         _raise_database_error(exc)
@@ -67,10 +74,17 @@ async def sync_projects(
     now = _now()
 
     try:
+        existing_cursor = db[PROJECTS_COLLECTION].find({"user_id": user_id}, {"project.id": 1})
+        existing_ids = {
+            str(doc.get("project", {}).get("id"))
+            async for doc in existing_cursor
+            if doc.get("project", {}).get("id")
+        }
+
         for project in payload.projects:
             project_id = _get_project_id(project)
             incoming_ids.append(project_id)
-            await db.projects.update_one(
+            await db[PROJECTS_COLLECTION].update_one(
                 {"user_id": user_id, "project.id": project_id},
                 {
                     "$set": {
@@ -84,7 +98,13 @@ async def sync_projects(
                 upsert=True,
             )
 
-        await db.projects.delete_many({"user_id": user_id, "project.id": {"$nin": incoming_ids}})
+        deleted_ids = existing_ids - set(incoming_ids)
+        await db[PROJECTS_COLLECTION].delete_many({"user_id": user_id, "project.id": {"$nin": incoming_ids}})
+        if deleted_ids:
+            await db[VISUAL_ASSETS_COLLECTION].delete_many({"user_id": user_id, "project_id": {"$in": list(deleted_ids)}})
+            await db[PROJECT_THREADS_COLLECTION].delete_many({"user_id": user_id, "project_id": {"$in": list(deleted_ids)}})
+            await db[PROJECT_FILES_COLLECTION].delete_many({"user_id": user_id, "project_id": {"$in": list(deleted_ids)}})
+            await db[DISCUSSION_COMMENTS_COLLECTION].delete_many({"user_id": user_id, "project_id": {"$in": list(deleted_ids)}})
     except PyMongoError as exc:
         _raise_database_error(exc)
 
@@ -102,7 +122,7 @@ async def upsert_project(
     now = _now()
 
     try:
-        await db.projects.update_one(
+        await db[PROJECTS_COLLECTION].update_one(
             {"user_id": user_id, "project.id": project_id},
             {
                 "$set": {
@@ -129,7 +149,7 @@ async def get_project_by_invite(invite_code: str) -> dict[str, dict[str, Any]]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="초대코드를 입력해주세요.")
 
     try:
-        doc = await db.projects.find_one(
+        doc = await db[PROJECTS_COLLECTION].find_one(
             {
                 "$or": [
                     {"invite_code": normalized_code},
@@ -152,9 +172,17 @@ async def delete_project(
 ):
     """로그인 사용자의 프로젝트 하나를 MongoDB에서 삭제합니다."""
     try:
-        result = await db.projects.delete_one({"user_id": user_id, "project.id": project_id})
+        result = await db[PROJECTS_COLLECTION].delete_one({"user_id": user_id, "project.id": project_id})
     except PyMongoError as exc:
         _raise_database_error(exc)
 
     if result.deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="삭제할 프로젝트를 찾지 못했습니다.")
+
+    try:
+        await db[VISUAL_ASSETS_COLLECTION].delete_many({"user_id": user_id, "project_id": project_id})
+        await db[PROJECT_THREADS_COLLECTION].delete_many({"user_id": user_id, "project_id": project_id})
+        await db[PROJECT_FILES_COLLECTION].delete_many({"user_id": user_id, "project_id": project_id})
+        await db[DISCUSSION_COMMENTS_COLLECTION].delete_many({"user_id": user_id, "project_id": project_id})
+    except PyMongoError as exc:
+        _raise_database_error(exc)

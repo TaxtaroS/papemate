@@ -7,12 +7,13 @@ import struct
 import zipfile
 import subprocess
 import tempfile
-import os
 from collections import Counter
 from html import unescape
 from pathlib import Path
 from typing import Iterable
 from xml.etree import ElementTree
+
+from app.core.config import settings
 
 # 이 파일은 AI가 직접 동작하는 곳이 아니라, AI에 넣을 텍스트를 준비하는 전처리 서비스입니다.
 # 파일 형식별로 본문 텍스트를 추출하고, OpenAI 키가 없을 때 쓸 기본 분석 결과도 만듭니다.
@@ -611,7 +612,7 @@ def parse_document(file_bytes: bytes, filename: str = "document") -> dict:
     ext = Path(filename).suffix.lower()
     if ext == '.hwpx':
         # 우선적으로 Java hwpxlib JAR을 사용하도록 시도합니다.
-        jar_path = os.getenv('HWPX_JAR', '').strip()
+        jar_path = settings.hwpx_jar
         if jar_path:
             try:
                 text, images = _parse_hwpx_with_java(jar_path, file_bytes)

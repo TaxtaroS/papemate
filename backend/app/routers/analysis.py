@@ -1,9 +1,9 @@
 # 초보자 안내: 문서 파일 업로드와 분석 요청을 처리하는 API 라우터입니다.
 
-import os
-
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from app.core.config import settings
+from app.core.uploads import read_upload_content, validate_upload_count
 from ..services.document_analysis import build_analysis_answer, extract_file_text
 from ..services.llm_analysis import analyze_with_llm
 from models.schemas import AnalysisResponse
@@ -25,14 +25,13 @@ async def analyze_chat(
     google_api_key: str = Form(""),
     files: list[UploadFile] = File(default=[]),
 ):
-    if not files:
-        raise HTTPException(status_code=400, detail="분석할 파일을 업로드해주세요.")
+    validate_upload_count(files, required=True)
 
     extracted_docs = []
     for upload in files:
         # UploadFile은 FastAPI가 제공하는 업로드 파일 객체입니다.
         # await upload.read()로 파일 내용을 bytes 형태로 읽습니다.
-        content = await upload.read()
+        content = await read_upload_content(upload)
 
         # 파일 확장자에 따라 PDF/HWPX/DOCX/이미지/TXT 추출기가 선택됩니다.
         # 결과 text는 이후 기본 분석과 LLM 분석의 공통 입력이 됩니다.
@@ -55,10 +54,10 @@ async def analyze_chat(
     selected_provider = llm_provider.strip() or "openai"
     if selected_provider.lower() == "google":
         request_key = google_api_key.strip()
-        env_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        env_key = settings.google_api_key or settings.gemini_api_key
     else:
         request_key = openai_api_key.strip()
-        env_key = os.getenv("OPENAI_API_KEY")
+        env_key = settings.openai_api_key
     llm_key_source = "request" if request_key else "env" if env_key else "none"
     llm_key_received = llm_key_source != "none"
 
