@@ -18,11 +18,7 @@ const getApiBaseUrl = () => {
     return configuredUrl;
   }
 
-  if (typeof window !== 'undefined' && ['3000', '3001', '5173', '5174'].includes(window.location.port)) {
-    return `http://${window.location.hostname}:8000`;
-  }
-
-  return '';
+  return 'http://localhost:8000';
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -84,13 +80,18 @@ export const authAPI = {
 };
 
 export const analysisAPI = {
-  chat: (question: string, files: File[], options: AnalysisChatOptions = {}) => {
+  chat: (question: string, files: File[], options: AnalysisChatOptions = {}, analysisText = '') => {
     const formData = new FormData();
     formData.append('question', question);
     formData.append('llm_provider', options.provider || 'openai');
     if (options.openaiApiKey) formData.append('openai_api_key', options.openaiApiKey);
     if (options.googleApiKey) formData.append('google_api_key', options.googleApiKey);
-    files.forEach((file) => formData.append('files', file));
+    if (analysisText) formData.append('analysis_text', analysisText);
+    files.forEach((file) => {
+      if (file instanceof File || file instanceof Blob) {
+        formData.append('files', file);
+      }
+    });
 
     return apiClient.post('/api/analysis/chat', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

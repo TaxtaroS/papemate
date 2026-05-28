@@ -215,41 +215,33 @@ export const VisualArtifact = styled.div`
 
   .mini-table {
     display: grid;
-    grid-template-columns: minmax(96px, 0.85fr) minmax(150px, 1.5fr) 72px;
-    border: 2px solid #94a3b8;
-    border-radius: 10px;
+    /* grid-template-columns는 이제 인라인 스타일로 동적으로 설정됨 */
+    gap: 1px; /* 💡 셀 사이의 간격을 1px로 주고 배경색을 통해 자동으로 테두리를 만듭니다. */
+    background: #cbd5e1; /* 외곽선 및 내부 테두리 색상 */
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
     overflow: hidden;
-    background: #ffffff;
-    box-shadow: inset 0 0 0 1px #e2e8f0;
 
     div {
-      padding: 9px 10px;
-      border-bottom: 1px solid #cbd5e1;
-      border-right: 1px solid #cbd5e1;
+      background: #ffffff;
+      padding: 10px 14px;
       color: #334155;
-      font-size: 12px;
-      font-weight: 700;
-      min-height: 34px;
-      line-height: 1.35;
+      font-size: 13px;
+      font-weight: 600;
+      min-height: 38px;
+      line-height: 1.4;
       display: flex;
       align-items: center;
-    }
-
-    div:nth-child(3n) {
-      border-right: none;
-      justify-content: center;
-      font-variant-numeric: tabular-nums;
-    }
-
-    div:nth-last-child(-n + 3) {
-      border-bottom: none;
+      justify-content: flex-start;
+      word-break: keep-all; /* 단어 끊어짐 방지 */
     }
 
     .th {
       background: #0f766e;
       color: #ffffff;
-      font-weight: 900;
+      font-weight: 700;
       justify-content: center;
+      text-align: center;
     }
   }
 

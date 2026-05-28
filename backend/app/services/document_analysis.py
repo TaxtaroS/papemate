@@ -1,9 +1,13 @@
 # 초보자 안내: PDF, DOCX, HWPX, 이미지 등에서 텍스트를 뽑고 기본 분석 결과를 만드는 서비스입니다.
 
 import io
+import math
 import re
 import struct
 import zipfile
+import subprocess
+import tempfile
+import os
 from collections import Counter
 from html import unescape
 from pathlib import Path
@@ -18,16 +22,165 @@ from xml.etree import ElementTree
 # - olefile + struct + zlib: 구형 HWP 바이너리 본문 추출 시도
 # - Pillow(PIL): 이미지 크기/형식 확인
 # - pytesseract: 이미지 속 글자 OCR. 단, PC에 Tesseract 실행 파일도 별도 설치되어야 합니다.
+# 선택 사용 라이브러리:
+# - soynlp: 반복 문자 정규화. 설치되어 있으면 "ㅋㅋㅋㅋ", "ㅠㅠㅠㅠ" 같은 반복을 줄입니다.
+# - customized_konlpy: 사용자 사전을 넣어 한국어 전문용어가 잘게 쪼개지는 문제를 줄입니다.
+# - pykospacing: 띄어쓰기 보정. 설치되어 있고 텍스트가 너무 길지 않을 때만 사용합니다.
 
 TEXT_EXTENSIONS = {".txt", ".md", ".csv"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+CHUNK_SIZE = 900
+CHUNK_OVERLAP = 160
+MAX_SPACING_CHARS = 3000
+
+# WikiDocs의 한국어 QA 예제는 사용자 사전을 추가한 형태소 분석으로
+# 사람 이름/전문용어가 잘게 쪼개지는 문제를 줄이는 아이디어를 소개합니다.
+# 우리 프로젝트에서는 설치가 까다로운 형태소 분석기를 필수로 두지 않고,
+# 설치되어 있으면 사용하고 없으면 정규식 기반 토큰화로 안전하게 동작하게 합니다.
+DOMAIN_TERMS = {
+    "RAG",
+    "LLM",
+    "BERT",
+    "GPT",
+    "OWPML",
+    "HWPX",
+    "HWP",
+    "FastAPI",
+    "MongoDB",
+    "정확도",
+    "정밀도",
+    "재현율",
+    "데이터셋",
+    "벤치마크",
+    "마인드맵",
+    "시각화",
+}
+
+KOREAN_SUFFIXES = (
+    "에서는",
+    "에게서",
+    "으로서",
+    "으로써",
+    "입니다",
+    "합니다",
+    "였다",
+    "했다",
+    "에서",
+    "으로",
+    "에게",
+    "보다",
+    "처럼",
+    "까지",
+    "부터",
+    "이며",
+    "이고",
+    "지만",
+    "는데",
+    "거나",
+    "하고",
+    "라는",
+    "이란",
+    "되었습니다",
+    "했습니다",
+    "됩니다",
+    "합니다",
+    "되었",
+    "하였",
+    "했다",
+    "된다",
+    "하다",
+    "였다",
+    "보였다",
+    "나왔다",
+    "있었다",
+    "은",
+    "는",
+    "이",
+    "가",
+    "을",
+    "를",
+    "에",
+    "의",
+    "도",
+    "와",
+    "과",
+    "로",
+)
 
 
 # 공백과 HTML 엔티티를 정리해 분석하기 쉬운 한 줄 텍스트로 만듭니다.
 def _clean_text(text: str) -> str:
     text = unescape(text or "")
+    # 제어문자 제거
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
+
+    # HWP/HWPX 추출 시 남는 주석/각주 표기 '^3', '^3)', '(^5)' 등 제거
+    # 의도치 않은 캐럿 표식만 제거하도록 숫자만 붙은 캐럿 패턴을 타깃으로 함
+    text = re.sub(r"\^\s*\(?\d+\)?", " ", text)
+    text = re.sub(r"\(\^\s*\d+\)", " ", text)
+
+    # 불필요한 단일 기호(중간점 등) 연속을 정리
+    text = re.sub(r"[·•◦]+", " ", text)
+
+    # HTML/공백 정리
     text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    text = text.strip()
+
+    # 남은 빈 괄호 제거
+    text = re.sub(r"\(\s*\)", "", text)
+    return text
+
+
+def _normalize_repeated_korean(text: str) -> str:
+    """반복 문자와 감탄 표현을 정리합니다.
+
+    soynlp가 있으면 emoticon_normalize/repeat_normalize를 사용하고,
+    없으면 같은 문자가 3번 이상 반복되는 경우를 2번으로 줄입니다.
+    """
+
+    if not text:
+        return ""
+
+    try:
+        from soynlp.normalizer import emoticon_normalize, repeat_normalize
+
+        normalized = emoticon_normalize(text, num_repeats=2)
+        return repeat_normalize(normalized, num_repeats=2)
+    except ModuleNotFoundError:
+        return re.sub(r"(.)\1{2,}", r"\1\1", text)
+    except Exception:
+        return re.sub(r"(.)\1{2,}", r"\1\1", text)
+
+
+def _maybe_fix_spacing(text: str) -> str:
+    """선택형 띄어쓰기 보정입니다.
+
+    PyKoSpacing은 설치가 무겁고 환경 영향을 많이 받으므로 필수로 쓰지 않습니다.
+    설치되어 있고 텍스트가 짧을 때만 사용해 서버 응답 지연을 피합니다.
+    """
+
+    if not text or len(text) > MAX_SPACING_CHARS:
+        return text
+
+    try:
+        from pykospacing import Spacing
+    except ModuleNotFoundError:
+        return text
+
+    try:
+        return Spacing()(text)
+    except Exception:
+        return text
+
+
+def preprocess_korean_text(text: str, fix_spacing: bool = False) -> str:
+    """문서 분석 전 한국어 텍스트를 정제/정규화하는 공통 입구입니다."""
+
+    cleaned = _clean_text(text)
+    normalized = _normalize_repeated_korean(cleaned)
+    if fix_spacing:
+        normalized = _maybe_fix_spacing(normalized)
+    return _clean_text(normalized)
 
 
 # 문장을 대략적으로 나눕니다.
@@ -43,6 +196,47 @@ def _sentences(text: str) -> list[str]:
         seen.add(cleaned)
         sentences.append(cleaned)
     return sentences
+
+
+def _strip_korean_suffix(word: str) -> str:
+    """조사/어미가 붙은 한국어 단어를 키워드 비교용으로 가볍게 정규화합니다."""
+
+    for suffix in KOREAN_SUFFIXES:
+        if word.endswith(suffix) and len(word) > len(suffix) + 1:
+            return word[: -len(suffix)]
+    return word
+
+
+def _regex_terms(text: str) -> list[str]:
+    """외부 형태소 분석기가 없을 때 쓰는 기본 토큰화입니다."""
+
+    terms = []
+    for word in re.findall(r"[A-Za-z가-힣0-9]{2,}", text.lower()):
+        normalized = _strip_korean_suffix(word)
+        if len(normalized) >= 2:
+            terms.append(normalized)
+    return terms
+
+
+def _tokenize_terms(text: str) -> list[str]:
+    """선택형 한국어 토큰화입니다.
+
+    customized_konlpy가 설치되어 있으면 사용자 사전을 넣어 전문용어를 보호하고,
+    설치되어 있지 않으면 정규식 기반 토큰화로 그대로 진행합니다.
+    """
+
+    try:
+        from ckonlpy.tag import Twitter
+    except ModuleNotFoundError:
+        return _regex_terms(text)
+
+    try:
+        tokenizer = Twitter()
+        for term in DOMAIN_TERMS:
+            tokenizer.add_dictionary(term, "Noun")
+        return [_strip_korean_suffix(token.lower()) for token in tokenizer.morphs(text) if len(token.strip()) >= 2]
+    except Exception:
+        return _regex_terms(text)
 
 
 # 기본 분석에서 중요한 문장 후보를 고르기 위한 점수 함수입니다.
@@ -76,7 +270,7 @@ def _keyword_score(sentence: str, query_terms: set[str] | None = None, term_weig
     if query_terms:
         score += sum(2.8 for term in query_terms if term and term in lowered)
     if term_weights:
-        sentence_terms = set(re.findall(r"[A-Za-z가-힣0-9]{2,}", lowered))
+        sentence_terms = set(_tokenize_terms(lowered))
         score += sum(min(term_weights.get(term, 0), 4) * 0.38 for term in sentence_terms)
     return score
 
@@ -88,7 +282,7 @@ def _top_sentences(text: str, limit: int = 5, question: str = "") -> list[str]:
         return []
 
     query_terms = set(_frequent_terms(question, 8)) if question else set()
-    term_weights = Counter(re.findall(r"[A-Za-z가-힣0-9]{2,}", text.lower()))
+    term_weights = Counter(_tokenize_terms(text))
     ranked = sorted(
         enumerate(sentences),
         key=lambda item: (
@@ -105,7 +299,7 @@ def _top_sentences(text: str, limit: int = 5, question: str = "") -> list[str]:
 # 자주 등장하는 단어를 뽑아 키워드 목록을 만듭니다.
 # 조사/일반 단어는 stopwords로 제외합니다.
 def _frequent_terms(text: str, limit: int = 10) -> list[str]:
-    words = re.findall(r"[A-Za-z가-힣0-9]{2,}", text.lower())
+    words = _tokenize_terms(text)
     stopwords = {
         "the",
         "and",
@@ -124,9 +318,128 @@ def _frequent_terms(text: str, limit: int = 10) -> list[str]:
         "한다",
         "에서",
         "으로",
+        "그리고",
+        "하지만",
+        "또한",
+        "통해",
+        "위해",
+        "경우",
+        "사용",
+        "대한",
+        "관련",
+        "되었습니다",
+        "했습니다",
+        "됩니다",
+        "합니다",
+        "되었",
+        "하였",
+        "향상되었",
+        "나타났",
+        "보였다",
+        "나왔다",
+        "있었다",
+        "없는",
+        "있다",
     }
-    counter = Counter(word for word in words if word not in stopwords)
+    counter = Counter(word for word in words if word not in stopwords and len(word) >= 2)
     return [word for word, _ in counter.most_common(limit)]
+
+
+def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """긴 문서를 RAG처럼 겹치는 청크로 나눕니다.
+
+    LangChain의 RecursiveCharacterTextSplitter 개념을 가볍게 구현한 버전입니다.
+    문장 경계를 우선 사용하고, 너무 긴 문장은 길이 기준으로 한 번 더 자릅니다.
+    """
+
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return []
+    if len(cleaned) <= chunk_size:
+        return [cleaned]
+
+    chunks: list[str] = []
+    current = ""
+    for sentence in _sentences(cleaned) or [cleaned]:
+        if len(sentence) > chunk_size:
+            step = max(chunk_size - overlap, 1)
+            chunks.extend(sentence[index:index + chunk_size] for index in range(0, len(sentence), step))
+            current = ""
+            continue
+
+        next_text = f"{current} {sentence}".strip()
+        if len(next_text) <= chunk_size:
+            current = next_text
+            continue
+
+        if current:
+            chunks.append(current)
+            current = f"{current[-overlap:]} {sentence}".strip() if overlap else sentence
+        else:
+            current = sentence
+
+    if current:
+        chunks.append(current)
+
+    return [chunk for chunk in chunks if chunk.strip()]
+
+
+def _idf_weights(chunks: list[str]) -> dict[str, float]:
+    token_sets = [set(_tokenize_terms(chunk)) for chunk in chunks]
+    total = len(token_sets)
+    document_frequency = Counter(token for tokens in token_sets for token in tokens)
+    return {
+        token: math.log((total + 1) / (count + 1)) + 1
+        for token, count in document_frequency.items()
+    }
+
+
+def rank_relevant_chunks(question: str, extracted_docs: list[dict], limit: int = 6) -> list[dict]:
+    """질문과 가까운 문서 조각을 TF-IDF식 점수로 고릅니다.
+
+    벡터DB 없이도 긴 문서에서 질문과 관련 있는 부분을 먼저 보여주기 위한 로컬 검색입니다.
+    """
+
+    candidates: list[dict] = []
+    for doc in extracted_docs:
+        for index, chunk in enumerate(_chunk_text(doc.get("text", "")), start=1):
+            candidates.append(
+                {
+                    "filename": doc.get("filename", "unknown"),
+                    "format": doc.get("format", "unknown"),
+                    "chunk_index": index,
+                    "text": chunk,
+                }
+            )
+
+    if not candidates:
+        return []
+
+    query_terms = set(_tokenize_terms(question or " ".join(_frequent_terms(" ".join(item["text"] for item in candidates), 8))))
+    idf = _idf_weights([item["text"] for item in candidates])
+
+    ranked = []
+    for item in candidates:
+        term_counts = Counter(_tokenize_terms(item["text"]))
+        if not term_counts:
+            continue
+
+        score = 0.0
+        for term in query_terms:
+            if not term:
+                continue
+            tf = term_counts.get(term, 0)
+            if tf:
+                score += (1 + math.log(tf)) * idf.get(term, 1)
+
+        # 질문어가 적거나 일치가 거의 없을 때도 연구 핵심 문장 청크가 올라오게 보정합니다.
+        score += sum(min(idf.get(term, 1), 3) for term in _frequent_terms(item["text"], 4)) * 0.15
+        score += len(_metric_candidates(item["text"], 2)) * 1.4
+
+        ranked.append({**item, "score": round(score, 4)})
+
+    ranked.sort(key=lambda item: item["score"], reverse=True)
+    return ranked[:limit]
 
 
 # 정확도/성능 수치처럼 논문 비교에 자주 필요한 값을 규칙 기반으로 뽑습니다.
@@ -160,6 +473,182 @@ def _extractive_summary(text: str, question: str = "", limit: int = 4) -> list[s
         return summary
     cleaned = _clean_text(text)
     return [cleaned[:360]] if cleaned else []
+
+
+# --- HWPX / HWP 파싱 보조 함수들 (PoC) -----------------------------
+def _parse_hwpx_bytes(data: bytes) -> tuple[str, list[dict]]:
+    """HWPX(Zip+XML) 포맷을 안전하게 파싱합니다.
+
+    반환값: (text, images)
+    - text: 문서에서 추출한 텍스트(간단 정리)
+    - images: [{'name': str, 'bytes': bytes}] 형태의 추출된 이미지들
+    """
+    texts = []
+    images = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            for name in z.namelist():
+                lname = name.lower()
+                # XML 파일에서 텍스트 수집
+                if lname.endswith('.xml'):
+                    try:
+                        raw = z.read(name)
+                        try:
+                            root = ElementTree.fromstring(raw)
+                        except Exception:
+                            # 일부 XML은 네임스페이스/깨진 문자 때문에 파싱이 실패할 수 있습니다.
+                            # 태그 원문을 그대로 넣으면 분석 품질이 떨어지므로 이 파일은 건너뜁니다.
+                            continue
+                        # 모든 텍스트 노드 합치기
+                        texts.append(' '.join(t for t in root.itertext() if t and t.strip()))
+                    except KeyError:
+                        continue
+
+                # 이미지 파일 추출
+                if any(lname.endswith(ext) for ext in IMAGE_EXTENSIONS) or lname.endswith('.svg'):
+                    try:
+                        images.append({'name': name, 'bytes': z.read(name)})
+                    except KeyError:
+                        continue
+
+    except zipfile.BadZipFile:
+        return "", []
+
+    combined = '\n'.join(_clean_text(t) for t in texts if t)
+    return combined, images
+
+
+def _parse_hwpx_with_java(jar_path: str, data: bytes) -> tuple[str, list[dict]]:
+    """hwpxlib(Java) JAR을 호출해 문서 텍스트를 얻는 PoC.
+
+    사용법: 환경변수 `HWPX_JAR`에 hwpxlib을 패키징한 JAR 경로를 설정하면
+    `parse_document`가 이 함수를 우선 시도합니다.
+
+    이 PoC는 JAR이 입력 파일 경로를 인자로 받아 정제된 본문 텍스트를
+    표준출력(stdout)에 쓰는 간단한 CLI를 제공한다고 가정합니다.
+    """
+    if not jar_path or not Path(jar_path).is_file():
+        return "", []
+
+    # 임시 파일에 쓰고 JAR에 경로 전달
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.hwpx') as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+
+        proc = subprocess.run([
+            'java', '-jar', jar_path, tmp_path
+        ], capture_output=True, text=True, timeout=30)
+
+        stdout = proc.stdout or ''
+        stderr = proc.stderr or ''
+        if proc.returncode != 0:
+            # 실패 시 stderr를 로깅할 수 있도록 빈 결과 반환
+            return "", []
+
+        return _clean_text(stdout), []
+    except Exception:
+        return "", []
+    finally:
+        try:
+            if 'tmp_path' in locals() and Path(tmp_path).exists():
+                Path(tmp_path).unlink()
+        except Exception:
+            pass
+
+
+def _parse_hwp_bytes(data: bytes) -> tuple[str, list[dict]]:
+    """HWP(바이너리) 파서는 외부 파서가 설치되어 있으면 시도합니다.
+
+    - 우선 `hwplib` (python-hwplib) 모듈을 import 시도합니다.
+    - 모듈이 없거나 실패하면 빈 텍스트와 빈 이미지 목록을 반환합니다.
+    """
+    try:
+        # python-hwplib 래퍼가 설치되어 있으면 사용 시도
+        import hwplib
+
+        try:
+            # python-hwplib의 API는 버전에 따라 다르므로 안전한 접근
+            # HWPDocument 등 친숙한 클래스가 존재하면 사용하고, 없으면 예외 처리
+            if hasattr(hwplib, 'HWPDocument'):
+                doc = hwplib.HWPDocument(io.BytesIO(data))
+                # 문서에서 텍스트를 수집하는 일반적 방법
+                text_parts = []
+                for para in getattr(doc, 'paragraphs', []) or []:
+                    try:
+                        text_parts.append(' '.join(p.text for p in para if getattr(p, 'text', None)))
+                    except Exception:
+                        continue
+                return _clean_text('\n'.join(text_parts)), []
+
+            # 다른 API 형태 시도
+            if hasattr(hwplib, 'HwpDocument'):
+                doc = hwplib.HwpDocument(io.BytesIO(data))
+                txt = str(doc)
+                return _clean_text(txt), []
+
+        except Exception:
+            return "", []
+
+    except ModuleNotFoundError:
+        # 사용자가 아직 설치하지 않았음
+        return "", []
+
+    return "", []
+
+
+def parse_document(file_bytes: bytes, filename: str = "document") -> dict:
+    """파일 바이트와 이름으로 문서의 텍스트와 내장 이미지를 추출해 구조화된 dict 반환.
+
+    반환 예:
+    {
+      'filename': '...',
+      'format': 'hwpx'|'hwp'|'unknown',
+      'text': '...',
+      'images': [ {'name':..., 'bytes':...}, ... ]
+    }
+    """
+    ext = Path(filename).suffix.lower()
+    if ext == '.hwpx':
+        # 우선적으로 Java hwpxlib JAR을 사용하도록 시도합니다.
+        jar_path = os.getenv('HWPX_JAR', '').strip()
+        if jar_path:
+            try:
+                text, images = _parse_hwpx_with_java(jar_path, file_bytes)
+                if text or images:
+                    return {'filename': filename, 'format': 'hwpx', 'text': text, 'images': images}
+            except Exception:
+                # Java 파서 실패 시 안전하게 폴백
+                pass
+
+        # 폴백: zip/xml 기반 파서
+        text, images = _parse_hwpx_bytes(file_bytes)
+        return {'filename': filename, 'format': 'hwpx', 'text': text, 'images': images}
+
+    if ext == '.hwp':
+        text, images = _parse_hwp_bytes(file_bytes)
+        return {'filename': filename, 'format': 'hwp', 'text': text, 'images': images}
+
+    # 기본 폴백: zip 내부 XML 시도 (DOCX 등)
+    try:
+        text, images = _parse_hwpx_bytes(file_bytes)
+        if text or images:
+            return {'filename': filename, 'format': 'zip-xml', 'text': text, 'images': images}
+    except Exception:
+        pass
+
+    return {'filename': filename, 'format': 'unknown', 'text': '', 'images': []}
+
+
+def _parsed_text_or_message(parsed: dict, empty_message: str) -> str:
+    text = _clean_text(parsed.get("text", ""))
+    return text or empty_message
+
+
+def _finalize_extracted_text(text: str) -> str:
+    """파일별 추출기가 반환한 텍스트를 분석용으로 최종 전처리합니다."""
+
+    return preprocess_korean_text(text, fix_spacing=False)
 
 
 def _question_intent(question: str) -> str:
@@ -242,12 +731,6 @@ def extract_docx(content: bytes) -> str:
     return _iter_zip_xml_text(content, ("word/document.xml",))
 
 
-# HWPX는 OWPML이라는 XML 기반 압축 포맷입니다.
-# 한글 문서의 본문 XML은 Contents/section*.xml 계열에 들어 있는 경우가 많습니다.
-def extract_hwpx_owpml(content: bytes) -> str:
-    return _iter_zip_xml_text(content, ("header.xml", "section0.xml", "section1.xml", "section2.xml", "section3.xml"))
-
-
 # .hwp 구형 바이너리 문서는 HWPX보다 훨씬 까다롭습니다.
 # olefile로 OLE 컨테이너를 열고, BodyText/Section* 스트림의 HWPTAG_PARA_TEXT(67)를 읽습니다.
 # 모든 HWP가 안정적으로 추출되지는 않으므로 실패하면 HWPX 변환 안내를 반환합니다.
@@ -319,9 +802,9 @@ def inspect_image(content: bytes) -> str:
     description = f"이미지 파일입니다. 크기: {image.width}x{image.height}px, 형식: {image.format}."
 
     try:
-      import pytesseract
+        import pytesseract
     except ModuleNotFoundError:
-      return f"{description} 이미지 속 텍스트까지 발췌하려면 OCR 엔진(pytesseract/Tesseract)이 필요합니다."
+        return f"{description} 이미지 속 텍스트까지 발췌하려면 OCR 엔진(pytesseract/Tesseract)이 필요합니다."
 
     try:
         ocr_text = _clean_text(pytesseract.image_to_string(image, lang="kor+eng"))
@@ -337,17 +820,26 @@ def inspect_image(content: bytes) -> str:
 def extract_file_text(filename: str, content: bytes) -> tuple[str, str]:
     extension = Path(filename).suffix.lower()
     if extension == ".pdf":
-        return extract_pdf(content), "PDF"
+        return _finalize_extracted_text(extract_pdf(content)), "PDF"
     if extension == ".hwpx":
-        return extract_hwpx_owpml(content), "HWPX/OWPML"
+        parsed = parse_document(content, filename)
+        text = _parsed_text_or_message(
+            parsed,
+            "HWPX/OWPML 내부에서 추출 가능한 본문 텍스트를 찾지 못했습니다.",
+        )
+        return _finalize_extracted_text(text), "HWPX/OWPML"
     if extension == ".docx":
-        return extract_docx(content), "DOCX"
+        return _finalize_extracted_text(extract_docx(content)), "DOCX"
     if extension in TEXT_EXTENSIONS:
-        return extract_text(content), "TEXT"
+        return _finalize_extracted_text(extract_text(content)), "TEXT"
     if extension in IMAGE_EXTENSIONS:
-        return inspect_image(content), "IMAGE"
+        return _finalize_extracted_text(inspect_image(content)), "IMAGE"
     if extension == ".hwp":
-        return extract_hwp(content), "HWP"
+        parsed = parse_document(content, filename)
+        text = _parsed_text_or_message(parsed, "")
+        if text:
+            return _finalize_extracted_text(text), "HWP"
+        return _finalize_extracted_text(extract_hwp(content)), "HWP"
     return "지원하지 않는 파일 형식입니다.", "UNKNOWN"
 
 
@@ -356,8 +848,10 @@ def extract_file_text(filename: str, content: bytes) -> tuple[str, str]:
 def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
     combined_text = "\n".join(doc["text"] for doc in extracted_docs if doc["text"])
     intent = _question_intent(question)
-    highlights = _top_sentences(combined_text, 10, question)
-    summary_points = _extractive_summary(combined_text, question, 4)
+    relevant_chunks = rank_relevant_chunks(question, extracted_docs, 6)
+    relevant_text = "\n".join(chunk["text"] for chunk in relevant_chunks) or combined_text
+    highlights = _top_sentences(relevant_text, 10, question)
+    summary_points = _extractive_summary(relevant_text, question, 4)
     terms = _frequent_terms(combined_text)
     metrics = _metric_candidates(combined_text)
 
@@ -407,6 +901,18 @@ def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
     else:
         answer_lines.append("- 정확도, F1, AUC, % 등으로 표시된 실험 수치 후보를 찾지 못했습니다.")
 
+    if relevant_chunks:
+        answer_lines.extend([
+            "",
+            "[질문 관련 문서 구간]",
+        ])
+        for chunk in relevant_chunks[:4]:
+            preview = _clean_text(chunk["text"])[:260]
+            answer_lines.append(
+                f"- {chunk['filename']} #{chunk['chunk_index']} "
+                f"(관련도 {chunk['score']}): {preview}"
+            )
+
     answer_lines.extend([
         "",
         "[문서별 핵심 발췌]",
@@ -446,4 +952,7 @@ def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
         "keywords": terms,
         "metrics": metrics,
         "documents": comparison,
+        "relevant_chunks": relevant_chunks,
     }
+
+

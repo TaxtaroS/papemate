@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.core.database import db
 from app.core.deps import get_current_user_id
@@ -19,6 +19,15 @@ from models.schemas import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _raise_database_error(exc: PyMongoError) -> None:
+    """MongoDB 장애를 로그인 화면에서 이해할 수 있는 오류로 바꿉니다."""
+
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=f"데이터베이스 연결 또는 처리 중 오류가 발생했습니다: {exc}",
+    ) from exc
 
 
 def serialize_user(user) -> AuthUser:
@@ -49,6 +58,8 @@ async def signup(payload: SignupRequest):
         result = await db.users.insert_one(user_doc)
     except DuplicateKeyError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 아이디입니다.") from exc
+    except PyMongoError as exc:
+        _raise_database_error(exc)
 
     user_doc["_id"] = result.inserted_id
     token = create_access_token(str(result.inserted_id))
@@ -58,10 +69,16 @@ async def signup(payload: SignupRequest):
 @router.post("/login", response_model=AuthResponse)
 async def login(payload: LoginRequest):
     username = payload.username.strip()
-    user = await db.users.find_one({"username": username})
+    try:
+        user = await db.users.find_one({"username": username})
+    except PyMongoError as exc:
+        _raise_database_error(exc)
 
-    if not user or not verify_password(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="등록되지 않은 아이디입니다.")
+
+    if not verify_password(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="비밀번호가 올바르지 않습니다.")
 
     token = create_access_token(str(user["_id"]))
     return AuthResponse(access_token=token, user=serialize_user(user))
@@ -77,12 +94,20 @@ async def update_profile(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="닉네임을 입력해주세요.")
 
     object_id = get_object_id(user_id)
-    user = await db.users.find_one({"_id": object_id})
+    try:
+        user = await db.users.find_one({"_id": object_id})
+    except PyMongoError as exc:
+        _raise_database_error(exc)
+
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
 
     display_name = username
-    await db.users.update_one({"_id": object_id}, {"$set": {"display_name": display_name}})
+    try:
+        await db.users.update_one({"_id": object_id}, {"$set": {"display_name": display_name}})
+    except PyMongoError as exc:
+        _raise_database_error(exc)
+
     user["display_name"] = display_name
 
     return serialize_user(user)
@@ -94,25 +119,40 @@ async def change_password(
     user_id: str = Depends(get_current_user_id),
 ):
     object_id = get_object_id(user_id)
-    user = await db.users.find_one({"_id": object_id})
+    try:
+        user = await db.users.find_one({"_id": object_id})
+    except PyMongoError as exc:
+        _raise_database_error(exc)
+
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
 
     if not verify_password(payload.current_password, user["password_hash"]):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="현재 비밀번호가 올바르지 않습니다.")
 
-    await db.users.update_one(
-        {"_id": object_id},
-        {"$set": {"password_hash": hash_password(payload.new_password)}},
-    )
+    try:
+        await db.users.update_one(
+            {"_id": object_id},
+            {"$set": {"password_hash": hash_password(payload.new_password)}},
+        )
+    except PyMongoError as exc:
+        _raise_database_error(exc)
+
     return {"message": "비밀번호가 변경되었습니다."}
 
 
 @router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_account(user_id: str = Depends(get_current_user_id)):
     object_id = get_object_id(user_id)
-    result = await db.users.delete_one({"_id": object_id})
+    try:
+        result = await db.users.delete_one({"_id": object_id})
+    except PyMongoError as exc:
+        _raise_database_error(exc)
+
     if result.deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
 
-    await db.projects.delete_many({"user_id": user_id})
+    try:
+        await db.projects.delete_many({"user_id": user_id})
+    except PyMongoError as exc:
+        _raise_database_error(exc)
