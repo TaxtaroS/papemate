@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from app.core.uploads import read_upload_content, validate_upload_count
 from app.services.document_analysis import build_analysis_answer, extract_file_text
 from app.services.visual_buttons import VISUAL_CREATORS
 from models.schemas import VisualResponse
@@ -21,9 +22,10 @@ async def create_visual(
     if not creator:
         raise HTTPException(status_code=404, detail="지원하지 않는 시각화 유형입니다.")
 
+    validate_upload_count(files)
     extracted_docs = []
     for upload in files:
-        content = await upload.read()
+        content = await read_upload_content(upload)
         try:
             text, file_format = extract_file_text(upload.filename or "unknown", content)
         except Exception as exc:

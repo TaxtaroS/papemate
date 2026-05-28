@@ -294,7 +294,7 @@ function Home() {
       .reverse()
       .find((item) => item.role === "ai" || item.role === "asset");
 
-    if (!conversation.question && !project) {
+    if (!conversation.question && !project && thread.length === 0) {
       navigateToView(VIEW.ANALYSIS);
       return;
     }

@@ -18,7 +18,9 @@ const isQuotaExceededError = (error) =>
 
 // 초대코드 검색용 전역 인덱스에는 프로젝트 원본 전체를 넣지 않습니다.
 // 이미지 dataUrl 같은 큰 값은 localStorage 한도를 빨리 넘기므로, 공유 검색과 카드 복원에 필요한 가벼운 정보만 남깁니다.
-const compactProjectForSharedIndex = (project) => ({
+export const normalizeInviteCode = (code = '') => String(code || '').trim();
+
+export const compactProjectForSharedIndex = (project) => ({
   id: project.id,
   source: project.source,
   type: project.type,
@@ -67,11 +69,33 @@ const compactProjectForSharedIndex = (project) => ({
   createdAt: project.createdAt,
 });
 
-const compactSharedProjects = (projects) =>
+export const compactSharedProjects = (projects) =>
   (Array.isArray(projects) ? projects : [])
     .filter((project) => project?.inviteCode)
     .map(compactProjectForSharedIndex)
     .slice(0, 60);
+
+export const upsertProjectByIdOrInvite = (projects, project, limit = 100) => {
+  if (!project?.id && !project?.inviteCode) {
+    return Array.isArray(projects) ? projects : [];
+  }
+
+  const nextProjects = (Array.isArray(projects) ? projects : []).filter(
+    (item) => item?.id !== project.id && item?.inviteCode !== project.inviteCode
+  );
+  return [project, ...nextProjects].slice(0, limit);
+};
+
+export const upsertSharedProjectIndex = (project) => {
+  if (!project?.inviteCode) return readJson(SHARED_PROJECTS_KEY, []);
+
+  const sharedProjects = readJson(SHARED_PROJECTS_KEY, []);
+  const nextSharedProjects = compactSharedProjects(
+    upsertProjectByIdOrInvite(sharedProjects, project, 100)
+  );
+  writeJson(SHARED_PROJECTS_KEY, nextSharedProjects);
+  return nextSharedProjects;
+};
 
 // userId 또는 username을 키 뒤에 붙여서 계정별 저장 공간을 분리합니다.
 // 예: papermate.projects.v1.3, papermate.projects.v1.user14530
@@ -127,7 +151,7 @@ export const writeJson = (key, value) => {
 // 마이그레이션할 값이 실제로 비어 있지 않은지 확인하는 보조 함수입니다.
 // 초대코드 입력으로 프로젝트를 찾기 위한 전역 인덱스입니다.
 // 개인 프로젝트 저장소와 별도로, inviteCode가 있는 프로젝트만 모아서 저장합니다.
-const mergeProjectsIntoSharedIndex = (projects) => {
+export const mergeProjectsIntoSharedIndex = (projects) => {
   const projectsWithInvite = Array.isArray(projects)
     ? projects.filter((project) => project?.inviteCode)
     : [];

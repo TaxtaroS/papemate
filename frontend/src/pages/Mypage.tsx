@@ -46,7 +46,7 @@ const readSharedRooms = () => {
 };
 
 function Mypage({ onLogoutClick }) {
-  const { user, updateProfile, changePassword, withdrawAccount } = useAuth();
+  const { user, updateProfile, changePassword, withdrawAccount, logout } = useAuth();
   const [activeModal, setActiveModal] = useState(null);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -122,8 +122,9 @@ function Mypage({ onLogoutClick }) {
 
     try {
       await changePassword(currentPassword, newPassword);
-      setFeedback('비밀번호가 변경되었습니다.');
       closeModal();
+      window.alert('비밀번호가 변경되었습니다. 새 비밀번호로 다시 로그인해주세요.');
+      logout();
     } catch (saveError) {
       setError(saveError.response?.data?.detail || saveError.message || '비밀번호 변경에 실패했습니다.');
     } finally {

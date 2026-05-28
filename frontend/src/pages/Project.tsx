@@ -23,14 +23,142 @@ import {
   getRecentConversationsKey,
   getSharedRoomKey,
   getShareRoomKey,
+  mergeProjectsIntoSharedIndex,
   readJson,
   SHARED_PROJECTS_KEY,
+  upsertProjectByIdOrInvite,
   writeJson,
 } from '../utils/storageKeys';
+import { projectAPI } from '../services/api';
+import { VisualArtifact } from './styles/AnalysisLocal.styles';
 
 const MAX_PROJECTS = 10;
 const MAX_VISUALS = 10;
 const defaultProjects = [];
+
+const splitMeaningfulLines = (text) =>
+  String(text || '')
+    .split(/\n+/)
+    .map((line) => line.replace(/^[-\d.\s]+/, '').trim())
+    .filter((line) => line.length > 8)
+    .slice(0, 8);
+
+const makeVisualRows = (fileNames, lines) => {
+  const sources = fileNames.length > 0 ? fileNames : ['업로드 문서'];
+  const baseLines = lines.length
+    ? lines
+    : ['핵심 주제와 연구 목적', '실험 결과와 수치 정보', '방법론 차이점', '추가 확인이 필요한 내용'];
+
+  return Array.from({ length: Math.max(4, Math.min(6, sources.length + baseLines.length - 1)) }, (_, index) => ({
+    label: sources[index % sources.length],
+    point: baseLines[index % baseLines.length],
+    score: Math.max(36, Math.min(96, 88 - index * 7 + ((index % 2) * 9))),
+  }));
+};
+
+const renderDetailedVisualPreview = (asset: any) => {
+  if (asset.kind === 'table') {
+    let rows = asset.rows || [];
+    
+    // 혹시 AI가 문자열 형태로 보냈을 경우를 대비한 방어 코드
+    if (typeof rows === 'string') {
+      try { rows = JSON.parse(rows); } catch (e) { rows = []; }
+    }
+
+    // 표시할 기본 더미 데이터 생성 (AI 데이터가 없을 경우)
+    if (!Array.isArray(rows) || rows.length === 0) {
+      rows = makeVisualRows(['업로드 문서'], splitMeaningfulLines(asset.text || asset.desc));
+    }
+
+    // 💡 핵심: AI가 생성한 모든 객체의 키(Key)를 수집하여 중복 제거 (컬럼명 추출)
+    const allKeys = Array.from(new Set(rows.flatMap(Object.keys)));
+
+    return (
+      // 컬럼 개수(allKeys.length)에 맞춰 CSS Grid를 동적으로 생성합니다!
+      <div className="mini-table" style={{ gridTemplateColumns: `repeat(${allKeys.length}, 1fr)` }}>
+        
+        {/* 1. 테이블 헤더 (컬럼 이름 렌더링) */}
+        {allKeys.map((key: any) => (
+          <div className="th" key={`th-${key}`}>
+            {key}
+          </div>
+        ))}
+        
+        {/* 2. 테이블 본문 데이터 렌더링 */}
+        {rows.flatMap((row: any, rIndex: number) =>
+          allKeys.map((key: any) => (
+            <div key={`td-${rIndex}-${key}`}>
+              {row[key] !== undefined && row[key] !== null ? String(row[key]) : '-'}
+            </div>
+          ))
+        )}
+      </div>
+    );
+  }
+
+  // 💡 2. 그래프(Graph) 로직 (그래프는 수치가 필요하므로 최대한 score를 찾거나 임의 생성)
+  if (asset.kind === 'graph') {
+    const rows = asset.rows?.length ? asset.rows : [{ label: '핵심', score: 70 }, { label: '비교', score: 62 }];
+    const points = rows.slice(0, 5).map((row: any, index: number) => {
+      const x = 12 + index * (76 / Math.max(1, Math.min(rows.length, 5) - 1));
+      const numericScore = typeof row.score === 'number' ? row.score : (parseFloat(row.score) || 50);
+      const y = 92 - Math.max(12, Math.min(numericScore, 96)) * 0.78;
+      return `${x},${y}`;
+    });
+    return (
+      <div className="mini-graph">
+        <svg className="graph-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polyline points={points.join(' ')} />
+          {points.map((point: string) => {
+            const [cx, cy] = point.split(',');
+            return <circle key={point} cx={cx} cy={cy} r="2.2" />;
+          })}
+        </svg>
+        <div className="axis y-axis">수치</div>
+        <div className="axis x-axis">자료</div>
+        {rows.slice(0, 5).map((row: any, i: number) => {
+          const label = row.label || row.title || row.name || `항목 ${i+1}`;
+          const numericScore = typeof row.score === 'number' ? row.score : (parseFloat(row.score) || 50);
+          return (
+            <div className="bar-wrap" key={`bar-${label}-${i}`}>
+              <div className="bar" style={{ height: `${Math.max(28, Math.min(numericScore, 96))}%` }} />
+              <strong>{numericScore}</strong>
+              <span>{label}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // 💡 3. 마인드맵 로직
+  if (asset.kind === 'mindmap') {
+    const branches = asset.branches?.length
+      ? asset.branches
+      : splitMeaningfulLines(asset.text || asset.desc).slice(0, 4);
+    return (
+      <div className="mini-mindmap">
+        <div className="center-node">{asset.title}</div>
+        <div className="tree-trunk" aria-hidden="true"></div>
+        <div className="branches">
+          {branches.slice(0, 5).map((branch: string, index: number) => (
+            <span className={`branch branch-${index + 1}`} key={`${branch}-${index}`}>{branch}</span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // 💡 4. 이미지(기본) 로직
+  return (
+    <div className="mini-image">
+      <div className="image-title">{asset.desc || asset.title}</div>
+      <div className="chips">
+        {(asset.keywords || []).slice(0, 6).map((keyword: string) => <span key={keyword}>{keyword}</span>)}
+      </div>
+    </div>
+  );
+};
 
 const legacyDummyProjectTitles = [
   '이미지 분류',
@@ -54,6 +182,16 @@ const normalizeProjects = (projects) =>
     .slice(0, MAX_PROJECTS)
     .map(normalizeProject);
 
+const mergeProjectLists = (primaryProjects, fallbackProjects) => {
+  const merged = [];
+  asArray([...asArray(primaryProjects), ...asArray(fallbackProjects)]).forEach((project) => {
+    if (!project?.id && !project?.inviteCode) return;
+    const exists = merged.some((item) => item.id === project.id || item.inviteCode === project.inviteCode);
+    if (!exists) merged.push(project);
+  });
+  return normalizeProjects(merged);
+};
+
 const createInviteCode = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   return Array.from({ length: 7 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -73,6 +211,7 @@ const loadProjects = () => {
 const persistProjects = (projects) => {
   const nextProjects = normalizeProjects(projects);
   writeJson(getProjectsKey(), nextProjects);
+  mergeProjectsIntoSharedIndex(nextProjects);
   return nextProjects;
 };
 
@@ -144,8 +283,10 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
   const [editingProjectId, setEditingProjectId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [selectedVisual, setSelectedVisual] = useState(null);
+  const [expandedVisual, setExpandedVisual] = useState(null);
   const [isViewAllOpen, setIsViewAllOpen] = useState(false);
   const [limitNotice, setLimitNotice] = useState('');
+  const [syncNotice, setSyncNotice] = useState('');
 
   const visuals = useMemo(
     () =>
@@ -164,22 +305,40 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
   const commitProjects = (nextProjects) => {
     const normalizedProjects = persistProjects(nextProjects);
     setProjects(normalizedProjects);
+    projectAPI.sync(normalizedProjects).catch((error) => {
+      console.warn('MongoDB project sync skipped:', error);
+      setSyncNotice('백엔드 동기화에 실패해 브라우저 저장소에 먼저 보관했습니다.');
+    });
     return normalizedProjects;
   };
 
   useEffect(() => {
+    let isMounted = true;
+
+    projectAPI.list()
+      .then((response) => {
+        if (!isMounted) return;
+        const serverProjects = response.data?.projects;
+        if (!Array.isArray(serverProjects)) return;
+
+        const mergedProjects = mergeProjectLists(serverProjects, loadProjects());
+        persistProjects(mergedProjects);
+        setProjects(mergedProjects);
+        setSyncNotice('');
+      })
+      .catch((error) => {
+        console.warn('MongoDB project load skipped:', error);
+        if (isMounted) setSyncNotice('백엔드 프로젝트 목록을 불러오지 못해 브라우저 저장소 기준으로 표시합니다.');
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     writeJson(getProjectsKey(), normalizeProjects(projects));
-    const sharedProjects = readJson(SHARED_PROJECTS_KEY, []);
-    const ownProjectsWithInvite = asArray(projects).filter((project) => project?.inviteCode);
-    if (ownProjectsWithInvite.length === 0) return;
-
-    const ownIds = new Set(ownProjectsWithInvite.map((project) => project.id));
-    const ownInviteCodes = new Set(ownProjectsWithInvite.map((project) => project.inviteCode));
-    const otherSharedProjects = Array.isArray(sharedProjects)
-      ? sharedProjects.filter((project) => !ownIds.has(project.id) && !ownInviteCodes.has(project.inviteCode))
-      : [];
-
-    writeJson(SHARED_PROJECTS_KEY, [...ownProjectsWithInvite, ...otherSharedProjects].slice(0, 100).map(normalizeProject));
+    mergeProjectsIntoSharedIndex(projects);
   }, [projects]);
 
   useEffect(() => {
@@ -236,6 +395,10 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
 
     deleteProjectEverywhere(project.id);
     commitProjects(asArray(projects).filter((item) => item.id !== project.id));
+    projectAPI.delete(project.id).catch((error) => {
+      console.warn('MongoDB project delete skipped:', error);
+      setSyncNotice('백엔드 삭제 반영에 실패해 브라우저 저장소에서 먼저 삭제했습니다.');
+    });
     if (editingProjectId === project.id) setEditingProjectId(null);
     setLimitNotice('');
   };
@@ -314,31 +477,38 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
     setLimitNotice('');
   };
 
-  const renderVisualPreview = (visual) => {
-    if (visual?.kind === 'table') {
-      return (
-        <div className="mini-visual table">
-          <span></span><span></span><span></span>
-          <span></span><span></span><span></span>
-          <span></span><span></span><span></span>
-        </div>
-      );
-    }
+  const renderVisualPreview = (visual, isDrawer = false) => {
+    // 메인 그리드 카드의 넓은 가로 비율(약 4:1)에 맞추기 위해 렌더링 영역의 가로폭을 크게 설정합니다.
+    const containerWidth = isDrawer ? 350 : 400;
+    const containerHeight = isDrawer ? 180 : 80;
 
-    if (visual?.kind === 'graph') {
-      return (
-        <div className="mini-visual graph">
-          <i></i><i></i><i></i><i></i>
-        </div>
-      );
-    }
+    const width = isDrawer ? 600 : 1000;
+    const height = isDrawer ? 300 : 250;
+    
+    // 칸에 맞게 꽉 채우기 위한 스케일 계산
+    const scale = Math.max(containerWidth / width, containerHeight / height);
 
     return (
-      <div className="mini-visual chart">
-        <span style={{ height: '34%' }}></span>
-        <span style={{ height: '68%' }}></span>
-        <span style={{ height: '48%' }}></span>
-        <span style={{ height: '82%' }}></span>
+      <div style={{
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        width: `${width}px`,
+        height: `${height}px`,
+        transform: `translate(-50%, -50%) scale(${scale})`,
+        pointerEvents: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#ffffff',
+        boxSizing: 'border-box',
+        padding: '16px'
+      }}>
+        <VisualArtifact style={{ border: 'none', boxShadow: 'none', margin: 0, padding: 0, width: '100%', height: '100%' }}>
+          <div className="artifact-body" style={{ padding: 0, height: '100%' }}>
+            {renderDetailedVisualPreview(visual)}
+          </div>
+        </VisualArtifact>
       </div>
     );
   };
@@ -350,6 +520,11 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
       {limitNotice && (
         <div style={{ margin: '0 0 18px 0', color: '#dc2626', fontSize: '13px', fontWeight: 700 }}>
           {limitNotice}
+        </div>
+      )}
+      {syncNotice && (
+        <div style={{ margin: '0 0 18px 0', color: '#64748b', fontSize: '13px', fontWeight: 700 }}>
+          {syncNotice}
         </div>
       )}
 
@@ -503,7 +678,17 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
               </button>
             </div>
             <div className="drawer-body">
-              <div className="visual-preview">{renderVisualPreview(selectedVisual)}</div>
+              <div 
+                className="visual-preview" 
+                onClick={() => setExpandedVisual(selectedVisual)}
+                style={{ cursor: 'pointer', position: 'relative' }}
+                title="클릭하여 크게 보기"
+              >
+                {renderVisualPreview(selectedVisual, true)}
+                <div style={{ position: 'absolute', right: '12px', bottom: '12px', background: 'rgba(255,255,255,0.8)', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                  <i className="fa-solid fa-expand" style={{ color: '#0ea5a4' }}></i>
+                </div>
+              </div>
               <div className="info-section"><h5>데이터 분석 요약</h5><p>{selectedVisual.desc}</p></div>
               <div className="info-section">
                 <h5>세부 정보 필드</h5>
@@ -523,6 +708,28 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
           </>
         )}
       </DrawerContainer>
+
+      {expandedVisual && (
+        <ModalOverlay onClick={() => setExpandedVisual(null)} style={{ zIndex: 1100 }}>
+          <ModalContent onClick={(e) => e.stopPropagation()} style={{ maxWidth: '850px', width: '90%' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <h3 style={{ margin: 0, fontSize: '20px' }}>{expandedVisual.title}</h3>
+              </div>
+              <button type="button" onClick={() => setExpandedVisual(null)}><i className="fa-solid fa-xmark"></i></button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', padding: '0' }}>
+              <div style={{ width: '100%', minHeight: '400px', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px', boxSizing: 'border-box' }}>
+                <VisualArtifact style={{ width: '100%', border: 'none', boxShadow: 'none', margin: 0, padding: 0 }}>
+                  <div className="artifact-body" style={{ padding: 0 }}>
+                    {renderDetailedVisualPreview(expandedVisual)}
+                  </div>
+                </VisualArtifact>
+              </div>
+            </div>
+          </ModalContent>
+        </ModalOverlay>
+      )}
     </ProjectsContainer>
   );
 }

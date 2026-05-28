@@ -23,11 +23,14 @@ import {
   getRecentConversationsKey,
   getSharedRoomKey,
   getShareRoomKey,
+  normalizeInviteCode,
   readJson,
   SHARED_PROJECTS_KEY,
+  upsertProjectByIdOrInvite,
   writeJson,
 } from '../utils/storageKeys';
 import { getSharedImage, putSharedImage } from '../utils/imageStore';
+import { projectAPI } from '../services/api';
 
 // Share 페이지의 새 역할:
 // 프로젝트를 고르는 화면이 아니라, 초대코드로 들어온 프로젝트 결과물을 보며 코멘트를 남기는 저장형 토론방입니다.
@@ -117,6 +120,12 @@ const getProjectOwner = (project, room) =>
   asArray(room?.members)[0]?.name ||
   '프로젝트 주인';
 
+const upsertProjectByIdOrCode = (projects, project) => {
+  if (!project?.id && !project?.inviteCode) return sanitizeProjects(projects);
+
+  return sanitizeProjects(upsertProjectByIdOrInvite(projects, project, 100));
+};
+
 function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null }) {
   const imageInputRef = useRef(null);
   const chatFeedRef = useRef(null);
@@ -154,6 +163,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
   const [isComposingMessage, setIsComposingMessage] = useState(false);
   const [notice, setNotice] = useState('');
   const [imageDataUrls, setImageDataUrls] = useState({});
+  const [isLoadingProject, setIsLoadingProject] = useState(false);
 
   // 로컬 프로젝트와 공유 프로젝트를 합쳐서 하나의 프로젝트 목록으로 만듭니다.
   // 공유본의 이미지를 항상 우선으로 반영합니다.
@@ -313,14 +323,72 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     return updatedProject;
   };
 
+  const rememberSharedProject = useCallback((project) => {
+    if (!project?.id) return null;
+
+    const sharedIndex = readJson(SHARED_PROJECTS_KEY, []);
+    const nextSharedProjects = upsertProjectByIdOrCode(sharedIndex, stripImageDataUrls(project));
+    writeJson(SHARED_PROJECTS_KEY, nextSharedProjects);
+    setSharedProjects(loadSharedProjects());
+    return project;
+  }, []);
+
+  const findProjectByInviteCode = useCallback(async (inviteCode) => {
+    const normalizedCode = normalizeInviteCode(inviteCode);
+    if (!normalizedCode) return null;
+
+    const localProject = allProjects.find((project) => project.inviteCode === normalizedCode);
+    if (localProject) return localProject;
+
+    try {
+      setIsLoadingProject(true);
+      const response = await projectAPI.findByInviteCode(normalizedCode);
+      const serverProject = response.data?.project;
+      if (!serverProject?.id) return null;
+      return rememberSharedProject(serverProject);
+    } catch (error) {
+      return null;
+    } finally {
+      setIsLoadingProject(false);
+    }
+  }, [allProjects, rememberSharedProject]);
+
+  const activateMainProject = useCallback((project, inviteCode, extraComments = []) => {
+    if (!project?.id) return;
+
+    const normalizedCode = normalizeInviteCode(inviteCode || project.inviteCode);
+    const sharedRoom = sanitizeRoom(readJson(getSharedRoomKey(normalizedCode), fallbackRoom));
+    const projectCommentIds = new Set(asArray(project.discussionComments).map((comment) => comment.id));
+    const mergedComments = [
+      ...asArray(project.discussionComments),
+      ...asArray(extraComments),
+      ...asArray(sharedRoom.comments).filter((comment) => !projectCommentIds.has(comment.id)),
+    ];
+    const nextIds = Array.from(new Set([...asArray(sharedRoom.loadedProjectIds), project.id]));
+    const alreadyJoined = asArray(sharedRoom.members).some((member) => member.name === username);
+
+    setActiveShareCode(normalizedCode);
+    setSelectedProjectId(project.id);
+    setRoom({
+      ...sharedRoom,
+      inviteCode: normalizedCode,
+      joinedCode: normalizedCode,
+      mainProjectId: project.id,
+      loadedProjectIds: nextIds,
+      comments: mergedComments,
+      members: alreadyJoined ? asArray(sharedRoom.members) : [...asArray(sharedRoom.members), { id: Date.now(), name: username }],
+    });
+    rememberSharedProject(project);
+  }, [rememberSharedProject, username]);
+
   // room 상태가 변경될 때 로컬 저장소에도 업데이트합니다.
   // 활성 초대코드가 있으면 공유 방과 일반 방 둘 다 동기화합니다.
   useEffect(() => {
     const roomKey = activeShareCode ? getSharedRoomKey(activeShareCode) : getShareRoomKey();
     const nextRoom = {
       ...room,
-      inviteCode: activeShareCode || room.inviteCode,
-      joinedCode: activeShareCode || room.joinedCode,
+      inviteCode: activeShareCode || room.inviteCode || '',
+      joinedCode: activeShareCode || room.joinedCode || '',
     };
     if (JSON.stringify(readJson(roomKey, null)) !== JSON.stringify(nextRoom)) {
       writeJson(roomKey, nextRoom);
@@ -437,42 +505,22 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     };
   }, [imageDataUrls, projectAssets]);
 
-  const joinWithCode = () => {
-    const normalizedCode = room.joinedCode.trim();
-    const matchedProject = allProjects.find((project) => project.inviteCode === normalizedCode);
+  const joinWithCode = async () => {
+    const normalizedCode = normalizeInviteCode(room.joinedCode);
+    const matchedProject = await findProjectByInviteCode(normalizedCode);
 
     if (!matchedProject) {
-      setNotice('초대코드를 정확히 입력해야 프로젝트 토론방에 참여할 수 있습니다.');
+      setNotice('초대코드를 찾지 못했습니다. 프로젝트 카드의 초대코드를 다시 확인해주세요.');
       return;
     }
 
-    const sharedRoom = sanitizeRoom(readJson(getSharedRoomKey(normalizedCode), fallbackRoom));
-    const projectCommentIds = new Set(asArray(matchedProject.discussionComments).map((comment) => comment.id));
-    const mergedComments = [
-      ...asArray(matchedProject.discussionComments),
-      ...asArray(sharedRoom.comments).filter((comment) => !projectCommentIds.has(comment.id)),
-    ];
-    const nextIds = sharedRoom.loadedProjectIds.includes(matchedProject.id)
-      ? sharedRoom.loadedProjectIds
-      : [...sharedRoom.loadedProjectIds, matchedProject.id];
-    const alreadyJoined = asArray(sharedRoom.members).some((member) => member.name === username);
-
-    setActiveShareCode(normalizedCode);
-    setSelectedProjectId(matchedProject.id);
-    setRoom({
-      ...sharedRoom,
-      inviteCode: normalizedCode,
-      joinedCode: normalizedCode,
-      mainProjectId: matchedProject.id,
-      loadedProjectIds: nextIds,
-      comments: mergedComments,
-      members: alreadyJoined ? asArray(sharedRoom.members) : [...asArray(sharedRoom.members), { id: Date.now(), name: username }],
-    });
+    shouldScrollToAssetsRef.current = true;
+    activateMainProject(matchedProject, normalizedCode);
     setNotice(`참여 완료: "${matchedProject.title}" 결과 토론방을 불러왔습니다.`);
   };
 
-  const loadSupportProjectByCode = () => {
-    const normalizedCode = supportInviteCode.trim();
+  const loadSupportProjectByCode = async () => {
+    const normalizedCode = normalizeInviteCode(supportInviteCode);
     if (!normalizedCode) {
       setNotice('비교할 보조 프로젝트의 초대코드를 입력해주세요.');
       return;
@@ -483,7 +531,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
       return;
     }
 
-    const supportProject = allProjects.find((project) => project.inviteCode === normalizedCode);
+    const supportProject = await findProjectByInviteCode(normalizedCode);
     if (!supportProject) {
       setNotice('보조 프로젝트 초대코드를 찾을 수 없습니다.');
       return;
@@ -841,11 +889,13 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
                 value={supportInviteCode}
                 placeholder="비교 프로젝트 초대코드"
                 onChange={(event) => setSupportInviteCode(event.target.value)}
-                onKeyDown={(event) => event.key === 'Enter' && loadSupportProjectByCode()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void loadSupportProjectByCode();
+                }}
               />
-              <button type="button" className="support-load-btn" onClick={loadSupportProjectByCode}>
+              <button type="button" className="support-load-btn" onClick={() => void loadSupportProjectByCode()} disabled={isLoadingProject}>
                 <i className="fa-regular fa-folder-open"></i>
-                프로젝트 카드 불러오기
+                {isLoadingProject ? '불러오는 중...' : '프로젝트 카드 불러오기'}
               </button>
             </div>
             <span className="hint">메인 토론방에 보조 프로젝트를 붙여 비교합니다.</span>
@@ -923,10 +973,12 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
             value={room.joinedCode}
             placeholder={activeInviteCode || '프로젝트 초대코드'}
             onChange={(event) => setRoom((prev) => ({ ...prev, joinedCode: event.target.value }))}
-            onKeyDown={(event) => event.key === 'Enter' && joinWithCode()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void joinWithCode();
+            }}
           />
-          <button className="join-action" type="button" onClick={joinWithCode}>
-            입력
+          <button className="join-action" type="button" onClick={() => void joinWithCode()} disabled={isLoadingProject}>
+            {isLoadingProject ? '확인 중' : '입력'}
           </button>
         </div>
         <div className="notice">{notice}</div>

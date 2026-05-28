@@ -174,7 +174,7 @@ export const TopMenuBar = styled.div`
 
     .api-key-box {
       height: 36px;
-      min-width: 330px;
+      min-width: 210px;
       border: 1px solid #bfdbfe;
       border-radius: 6px;
       background: #f8fbff;
@@ -200,31 +200,11 @@ export const TopMenuBar = styled.div`
         outline: none;
       }
 
-      input {
-        min-width: 0;
-        flex: 1;
-        border: none;
-        background: transparent;
-        outline: none;
-        color: #1e293b;
+      .server-key-note {
+        color: #64748b;
         font-size: 12px;
         font-weight: 750;
-
-        &::placeholder {
-          color: #94a3b8;
-        }
-      }
-
-      .clear-key {
-        width: 20px;
-        height: 20px;
-        border: none;
-        border-radius: 5px;
-        background: #dbeafe;
-        color: #2563eb;
-        padding: 0;
-        font-size: 13px;
-        line-height: 1;
+        white-space: nowrap;
       }
     }
 
@@ -336,14 +316,146 @@ export const AiRow = styled.div`
   
   /* AI 답변 말풍선 박스 */
   .ai-box { 
-    background: #f1f5f9;                /* 💡 차분하고 정돈된 Light Slate 회색 배경 */
-    padding: 16px 24px;                 /* 💡 줄글이 가로로 길어지므로 가로 패딩을 24px로 넉넉히 확보 */
-    border-radius: 4px 16px 16px 16px;  /* 💡 AI 아이콘 시작점 기준으로 말풍선 모서리 엣지 포인트 부여 */
+    background: #f8fafc;                /* 💡 더 밝고 깨끗한 Slate 50 배경으로 눈의 피로도 저하 */
+    padding: 18px 24px;
+    border-radius: 4px 16px 16px 16px;
     color: #1e293b; 
-    font-size: 14.5px; 
-    font-weight: 600;                   /* 💡 기획서 폰트 두께 스펙 반영 */
-    line-height: 1.65;                  /* 💡 논문 분석 데이터 판독 시 줄간격이 꼬이지 않도록 최적화 */
-    max-width: 80%; white-space: pre-wrap; 
+    font-size: 15px; 
+    font-weight: 500;
+    line-height: 1.7;                   /* 💡 논문 텍스트에 맞춘 최적의 줄간격 */
+    max-width: 100%; 
+    white-space: normal;                /* 💡 pre-wrap 제거: ReactMarkdown이 태그를 자동 생성하므로 불필요한 줄바꿈 방지 */
+    word-break: break-word;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    border: 1px solid #e2e8f0;
+  }
+  
+  .markdown-body {
+    font-family: inherit;
+
+    /* 단락 간격 설정 */
+    p { 
+      margin: 0 0 14px 0; 
+    }
+    p:last-child { 
+      margin: 0; 
+    }
+
+    /* 제목 스타일링 */
+    h1, h2, h3, h4 {
+      color: #0f172a;
+      font-weight: 700;
+      margin-top: 24px;
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+    h1 { font-size: 1.4em; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; }
+    h2 { font-size: 1.25em; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+    h3 { font-size: 1.1em; color: #0ea5a4; }
+    h4 { font-size: 1em; color: #334155; }
+
+    /* 리스트 스타일링 */
+    ul, ol {
+      margin: 0 0 16px 0;
+      padding-left: 24px;
+    }
+    li {
+      margin-bottom: 6px;
+    }
+    li > ul, li > ol {
+      margin-top: 6px;
+      margin-bottom: 0;
+    }
+
+    /* 강조 텍스트 (Bold) */
+    strong {
+      color: #0f766e; /* 진한 틸 컬러로 키워드 강조 */
+      font-weight: 700;
+    }
+
+    /* 인용구 스타일링 (논문 본문 인용 등) */
+    blockquote {
+      margin: 16px 0;
+      padding: 12px 16px;
+      background-color: #f1f5f9;
+      border-left: 4px solid #0ea5a4;
+      border-radius: 0 4px 4px 0;
+      color: #475569;
+      font-style: italic;
+    }
+    blockquote p:last-child {
+      margin: 0;
+    }
+
+    /* 인라인 코드 스타일링 */
+    code {
+      background-color: #f1f5f9;
+      color: #b91c1c;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.9em;
+    }
+
+    /* 표 스타일링 */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    th {
+      background: #0ea5a4;
+      color: white;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 700;
+    }
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #e2e8f0;
+      color: #334155;
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    tr:nth-child(even) {
+      background-color: #f8fafc;
+    }
+  }
+
+  /* 추천 질문 칩 영역 */
+  .suggested-questions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+    margin-left: 4px;
+  }
+
+  .suggested-chip {
+    background-color: white;
+    border: 1px solid #0ea5a4;
+    color: #0ea5a4;
+    padding: 8px 14px;
+    border-radius: 20px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    box-shadow: 0 2px 4px rgba(14, 165, 164, 0.1);
+
+    &:hover {
+      background-color: #0ea5a4;
+      color: white;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 6px rgba(14, 165, 164, 0.2);
+    }
   }
 
   @media (max-width: 680px) {

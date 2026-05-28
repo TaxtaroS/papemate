@@ -3,6 +3,8 @@
 // 초보자 안내: 사용자가 실제로 보게 되는 한 화면 단위의 React 페이지 컴포넌트입니다.
 
 import React, { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   AiRow,
   BottomPromptInput,
@@ -11,6 +13,7 @@ import {
   StreamMessageArea,
   TopMenuBar,
   UserRow,
+  ModalBackdrop,
 } from './styles/Analysis.styles';
 import {
   InviteCodePill,
@@ -18,13 +21,14 @@ import {
   SaveInlinePanel,
   VisualArtifact,
   VisualPanel,
+  PreviewModalContainer,
 } from './styles/AnalysisLocal.styles';
 import { analysisAPI, projectAPI } from '../services/api';
 import {
   getProjectsKey,
   getRecentConversationsKey,
   readJson,
-  SHARED_PROJECTS_KEY,
+  upsertSharedProjectIndex,
   writeJson,
 } from '../utils/storageKeys';
 
@@ -42,6 +46,20 @@ const createInviteCode = () => {
 
 const formatDate = () => new Date().toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1);
 const getFileKey = (file) => `${file.name}-${file.size}-${file.lastModified || 0}`;
+const isUploadableFile = (file) => typeof File !== 'undefined' && file instanceof File;
+
+const getReadableErrorMessage = (error) => {
+  const detail = error?.response?.data?.detail || error?.response?.data?.message || error?.message;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => item?.msg || item?.message || JSON.stringify(item))
+      .join(', ');
+  }
+  if (detail && typeof detail === 'object') {
+    return detail.message || detail.detail || JSON.stringify(detail);
+  }
+  return detail || '알 수 없는 오류가 발생했습니다.';
+};
 
 const toStoredFiles = (files) =>
   files.map((file) => ({
@@ -165,8 +183,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
   const [files, setFiles] = useState([]);
   const [promptText, setPromptText] = useState('');
   const [llmProvider, setLlmProvider] = useState(() => sessionStorage.getItem('papermate.llmProvider') || 'openai');
-  const [openaiApiKey, setOpenaiApiKey] = useState(() => sessionStorage.getItem('papermate.openaiApiKey') || '');
-  const [googleApiKey, setGoogleApiKey] = useState(() => sessionStorage.getItem('papermate.googleApiKey') || '');
   const [messages, setMessages] = useState([
     { id: 'intro', role: 'ai', text: '분석을 시작하려면 파일을 업로드하거나 차트를 생성하세요.' },
   ]);
@@ -178,6 +194,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
   const [creatingVisualType, setCreatingVisualType] = useState(null);
   const [isProjectSaveOpen, setIsProjectSaveOpen] = useState(false);
   const [projectNameInput, setProjectNameInput] = useState('');
+  const [selectedVisual, setSelectedVisual] = useState(null);
 
   const currentInviteCode = currentProject?.inviteCode || restoredData?.inviteCode || '저장 후 생성';
 
@@ -208,29 +225,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     const nextProvider = event.target.value;
     setLlmProvider(nextProvider);
     sessionStorage.setItem('papermate.llmProvider', nextProvider);
-  };
-
-  const handleApiKeyChange = (event) => {
-    const nextKey = event.target.value.trim();
-    if (llmProvider === 'google') {
-      setGoogleApiKey(nextKey);
-      if (nextKey) sessionStorage.setItem('papermate.googleApiKey', nextKey);
-      else sessionStorage.removeItem('papermate.googleApiKey');
-      return;
-    }
-    setOpenaiApiKey(nextKey);
-    if (nextKey) sessionStorage.setItem('papermate.openaiApiKey', nextKey);
-    else sessionStorage.removeItem('papermate.openaiApiKey');
-  };
-
-  const clearApiKey = () => {
-    if (llmProvider === 'google') {
-      setGoogleApiKey('');
-      sessionStorage.removeItem('papermate.googleApiKey');
-      return;
-    }
-    setOpenaiApiKey('');
-    sessionStorage.removeItem('papermate.openaiApiKey');
   };
 
   const copyInviteCode = async () => {
@@ -264,7 +258,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     event.preventDefault();
     event.stopPropagation();
     const pendingFiles = [...files];
-    setFiles([]);
+    // setFiles([]); // 주석 처리: 엔터 입력 시 파일 초기화 방지
     handleSendMessage(pendingFiles);
   };
 
@@ -303,17 +297,23 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     ].slice(0, MAX_RECENT_CONVERSATIONS));
   };
 
-  const handleSendMessage = async (filesToSend = files) => {
-    const nextQuestion = promptText.trim();
+  const handleSendMessage = async (filesToSend = files, overrideQuestion = '') => {
+    const nextQuestion = overrideQuestion || promptText.trim();
     if (!nextQuestion && filesToSend.length === 0) {
       window.alert('질문을 입력하거나 파일을 선택해주세요.');
       return;
     }
 
     const pendingFiles = [...filesToSend];
+    const uploadableFiles = pendingFiles.filter(isUploadableFile);
+    if (pendingFiles.length > 0 && uploadableFiles.length === 0) {
+      window.alert('저장된 파일 기록은 이름만 복원된 상태입니다. 실제 분석을 하려면 파일을 다시 선택해주세요.');
+      return;
+    }
+
     const question = nextQuestion || '업로드한 문서를 요약해줘';
     setPromptText('');
-    setFiles([]);
+    // setFiles([]); // 주석 처리: 다음 질문을 위해 파일을 유지합니다.
 
     const fileNames = pendingFiles.map((file) => file.name).filter(Boolean).join(', ');
     const fileMessage = pendingFiles.length > 0
@@ -335,27 +335,72 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     setIsAnalyzing(true);
 
     try {
-      const response = await analysisAPI.chat(question, pendingFiles, {
+      const response = await analysisAPI.chat(question, uploadableFiles, {
         provider: llmProvider,
         openaiApiKey,
         googleApiKey,
-      });
-      const providerNote = response.data?.provider
-        ? `\n\n분석 엔진: ${response.data.provider === 'google' ? 'Google Gemini' : 'OpenAI'}${response.data.model ? ` (${response.data.model})` : ''}`
-        : '';
+      }, getLatestAnalysisText(messages));
+      const providerName = response.data?.provider === 'google' ? 'Google Gemini' : 'OpenAI';
+      const keySourceLabel = response.data?.llm_key_source === 'request'
+        ? '직접 입력'
+        : response.data?.llm_key_source === 'env'
+          ? '서버 환경변수'
+          : response.data?.llm_key_received
+            ? '확인됨'
+            : '없음';
+      const providerNote = response.data?.llm_used
+        ? `\n\n분석 엔진: ${providerName}${response.data.model ? ` (${response.data.model})` : ''}\nAPI 키: ${keySourceLabel}`
+        : response.data?.llm_error
+          ? `\n\n분석 엔진: 기본 문서 추출\nAPI 키: ${keySourceLabel}\nLLM 호출 실패: ${response.data.llm_error}`
+          : '';
       const answer = response.data?.answer || response.data?.summary || buildLocalFallbackAnswer(question, pendingFiles, messages);
       const successMessage = pendingFiles.length > 0
         ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${fileNames}` }
         : null;
+      const suggestedQuestions = response.data?.suggested_questions || [];
+
+      let parsedAssetData = null;
+      let isJsonAsset = false;
+      try {
+        let cleanedAnswer = answer.replace(/```json/gi, '').replace(/```/g, '').trim();
+        if (cleanedAnswer.startsWith('[') && cleanedAnswer.endsWith(']')) {
+          parsedAssetData = JSON.parse(cleanedAnswer);
+          if (Array.isArray(parsedAssetData)) {
+            isJsonAsset = true;
+          }
+        }
+      } catch (e) {
+        // Not valid JSON
+      }
+
       const messagesWithAnswer = [
         ...messagesWithQuestion,
         ...(successMessage ? [successMessage] : []),
-        { id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}` },
       ];
+
+      if (isJsonAsset) {
+        // AI가 JSON 배열로 응답했다면 표(Asset) 형태로 렌더링
+        const newVisual = {
+          id: `visual-${Date.now()}`,
+          role: 'asset',
+          kind: 'table',
+          title: question.includes('차트') || question.includes('표') || question.includes('비교') ? question : '데이터 분석 표',
+          rows: parsedAssetData,
+          saved: false,
+          suggestedQuestions, // asset에도 추천 질문을 넣기 위해
+        };
+        messagesWithAnswer.push(newVisual);
+        
+        // 새로 생성된 visual을 상단 보관함(generatedVisuals)에도 추가
+        setGeneratedVisuals((prev) => [newVisual, ...prev].slice(0, MAX_VISUALS));
+      } else {
+        messagesWithAnswer.push({ id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}`, suggestedQuestions });
+      }
+
       setMessages(messagesWithAnswer);
       upsertRecentConversation(messagesWithAnswer, question, pendingFiles);
     } catch (error) {
-      const serverMessage = error.response?.data?.detail || error.response?.data?.message || error.message || '알 수 없는 오류가 발생했습니다.';
+      const serverMessage = getReadableErrorMessage(error);
       const failureMessage = pendingFiles.length > 0
         ? { id: `upload-failure-${Date.now()}`, role: 'system', text: `파일 전송 실패: ${serverMessage}` }
         : null;
@@ -457,16 +502,13 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
         : []),
     ].slice(0, MAX_RECENT_CONVERSATIONS));
 
-    const sharedProjects = readJson(SHARED_PROJECTS_KEY, []);
-    writeJson(SHARED_PROJECTS_KEY, [
-      projectRecord,
-      ...(Array.isArray(sharedProjects)
-        ? sharedProjects.filter((project) => project.id !== projectRecord.id && project.inviteCode !== projectRecord.inviteCode)
-        : []),
-    ].slice(0, 100));
+    upsertSharedProjectIndex(projectRecord);
 
     try {
-      await projectAPI.save(projectRecord);
+      const response = await projectAPI.save(projectRecord);
+      if (response.data?.project) {
+        upsertSharedProjectIndex(response.data.project);
+      }
     } catch (error) {
       console.warn('MongoDB project save skipped:', error);
     }
@@ -554,60 +596,96 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     }
   };
 
-  const renderVisualPreview = (asset) => {
+  const renderVisualPreview = (asset: any) => {
+    // 💡 1. 동적 테이블 렌더링 로직
     if (asset.kind === 'table') {
-      const rows = asset.rows?.length ? asset.rows : makeVisualRows(['업로드 문서'], splitMeaningfulLines(asset.text || asset.desc));
+      let rows = asset.rows || [];
+      
+      // 혹시 AI가 문자열 형태로 보냈을 경우를 대비한 방어 코드
+      if (typeof rows === 'string') {
+        try { rows = JSON.parse(rows); } catch (e) { rows = []; }
+      }
+
+      // 표시할 기본 더미 데이터 생성 (AI 데이터가 없을 경우)
+      if (!Array.isArray(rows) || rows.length === 0) {
+        rows = makeVisualRows(['업로드 문서'], splitMeaningfulLines(asset.text || asset.desc));
+      }
+
+      // 💡 핵심: AI가 생성한 모든 객체의 키(Key)를 수집하여 중복 제거 (컬럼명 추출)
+      // 예: ["title", "PUE", "Energy_Loss_Reduction", ...]
+      const allKeys = Array.from(new Set(rows.flatMap(Object.keys)));
+
       return (
-        <div className="mini-table">
-          <div className="th">자료</div>
-          <div className="th">핵심 내용</div>
-          <div className="th">점수</div>
-          {rows.slice(0, 6).flatMap((row) => [
-            <div key={`${row.label}-label`}>{row.label}</div>,
-            <div key={`${row.label}-point`}>{row.point}</div>,
-            <div key={`${row.label}-score`}>{row.score}</div>,
-          ])}
+        // 컬럼 개수(allKeys.length)에 맞춰 CSS Grid를 동적으로 생성합니다!
+        <div className="mini-table" style={{ gridTemplateColumns: `repeat(${allKeys.length}, 1fr)` }}>
+          
+          {/* 1. 테이블 헤더 (컬럼 이름 렌더링) */}
+          {allKeys.map((key: any) => (
+            <div className="th" key={`th-${key}`}>
+              {key}
+            </div>
+          ))}
+          
+          {/* 2. 테이블 본문 데이터 렌더링 */}
+          {rows.flatMap((row: any, rIndex: number) =>
+            allKeys.map((key: any) => (
+              <div key={`td-${rIndex}-${key}`}>
+                {/* 데이터가 있으면 출력, 없으면 '-' 표시 */}
+                {row[key] !== undefined && row[key] !== null ? String(row[key]) : '-'}
+              </div>
+            ))
+          )}
         </div>
       );
     }
 
+    // 💡 2. 그래프(Graph) 로직 (그래프는 수치가 필요하므로 최대한 score를 찾거나 임의 생성)
     if (asset.kind === 'graph') {
       const rows = asset.rows?.length ? asset.rows : [{ label: '핵심', score: 70 }, { label: '비교', score: 62 }];
-      const points = rows.slice(0, 5).map((row, index) => {
+      const points = rows.slice(0, 5).map((row: any, index: number) => {
         const x = 12 + index * (76 / Math.max(1, Math.min(rows.length, 5) - 1));
-        const y = 92 - Math.max(12, Math.min(row.score || 50, 96)) * 0.78;
+        // 데이터에 score가 명시적으로 없으면 50으로 기본 처리 (방어 코드)
+        const numericScore = typeof row.score === 'number' ? row.score : (parseFloat(row.score) || 50);
+        const y = 92 - Math.max(12, Math.min(numericScore, 96)) * 0.78;
         return `${x},${y}`;
       });
       return (
         <div className="mini-graph">
           <svg className="graph-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             <polyline points={points.join(' ')} />
-            {points.map((point) => {
+            {points.map((point: string) => {
               const [cx, cy] = point.split(',');
               return <circle key={point} cx={cx} cy={cy} r="2.2" />;
             })}
           </svg>
-          <div className="axis y-axis">점수</div>
+          <div className="axis y-axis">수치</div>
           <div className="axis x-axis">자료</div>
-          {rows.slice(0, 5).map((row) => (
-            <div className="bar-wrap" key={row.label}>
-              <div className="bar" style={{ height: `${Math.max(28, Math.min(row.score, 96))}%` }} />
-              <strong>{row.score}</strong>
-              <span>{row.label}</span>
-            </div>
-          ))}
+          {rows.slice(0, 5).map((row: any, i: number) => {
+            const label = row.label || row.title || row.name || `항목 ${i+1}`;
+            const numericScore = typeof row.score === 'number' ? row.score : (parseFloat(row.score) || 50);
+            return (
+              <div className="bar-wrap" key={`bar-${label}-${i}`}>
+                <div className="bar" style={{ height: `${Math.max(28, Math.min(numericScore, 96))}%` }} />
+                <strong>{numericScore}</strong>
+                <span>{label}</span>
+              </div>
+            );
+          })}
         </div>
       );
     }
 
+    // 💡 3. 마인드맵 로직
     if (asset.kind === 'mindmap') {
-      const branches = asset.branches?.length ? asset.branches : splitMeaningfulLines(asset.text || asset.desc).slice(0, 4);
+      const branches = asset.branches?.length
+        ? asset.branches
+        : splitMeaningfulLines(asset.text || asset.desc).slice(0, 4);
       return (
         <div className="mini-mindmap">
           <div className="center-node">{asset.title}</div>
           <div className="tree-trunk" aria-hidden="true"></div>
           <div className="branches">
-            {branches.slice(0, 5).map((branch, index) => (
+            {branches.slice(0, 5).map((branch: string, index: number) => (
               <span className={`branch branch-${index + 1}`} key={`${branch}-${index}`}>{branch}</span>
             ))}
           </div>
@@ -615,18 +693,19 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
       );
     }
 
+    // 💡 4. 이미지(기본) 로직
     return (
       <div className="mini-image">
         <div className="image-title">{asset.desc || asset.title}</div>
         <div className="chips">
-          {(asset.keywords || []).slice(0, 6).map((keyword) => <span key={keyword}>{keyword}</span>)}
+          {(asset.keywords || []).slice(0, 6).map((keyword: string) => <span key={keyword}>{keyword}</span>)}
         </div>
       </div>
     );
   };
 
-  const renderVisualArtifact = (asset, compact = false) => (
-    <VisualArtifact>
+  const renderVisualArtifact = (asset, compact = false, isModal = false) => (
+    <VisualArtifact className={isModal ? 'is-modal' : ''}>
       <div className="artifact-head">
         <h4>{asset.title}</h4>
         <span>{asset.saved ? '저장됨' : '생성됨'}</span>
@@ -636,14 +715,16 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
         {renderVisualPreview(asset)}
       </div>
       {!compact && (
-        <button
-          type="button"
-          className="save-visual"
-          onClick={() => saveVisualAssetToProject(asset)}
-          disabled={asset.saved || isSavingProject}
-        >
-          {asset.saved ? '프로젝트에 저장됨' : '프로젝트 시각화 보관함에 저장하기'}
-        </button>
+        <div className="save-container">
+          <button
+            type="button"
+            className="save-visual"
+            onClick={() => saveVisualAssetToProject(asset)}
+            disabled={asset.saved || isSavingProject}
+          >
+            {asset.saved ? '프로젝트에 저장됨' : '프로젝트 시각화 보관함에 저장하기'}
+          </button>
+        </div>
       )}
     </VisualArtifact>
   );
@@ -664,7 +745,12 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
                 <span>아래 버튼으로 표, 그래프, 이미지, 마인드맵을 만들 수 있어요.</span>
               </div>
             ) : visibleVisuals.map((visual, index) => (
-              <div key={`${visual.id}-${index}`} className="asset-item">
+              <div 
+                key={`${visual.id}-${index}`} 
+                className="asset-item"
+                onClick={() => setSelectedVisual(visual)}
+                style={{ cursor: 'pointer' }}
+              >
                 <strong>{visual.title}</strong>
                 <span>{visual.saved ? '프로젝트 보관함 저장됨' : '채팅창에 생성됨'}</span>
                 {renderVisualArtifact(visual, true)}
@@ -697,18 +783,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
                   <option value="openai">OpenAI</option>
                   <option value="google">Google</option>
                 </select>
-                <input
-                  type="password"
-                  value={llmProvider === 'google' ? googleApiKey : openaiApiKey}
-                  placeholder={llmProvider === 'google' ? 'Google Gemini API key' : 'OpenAI API key'}
-                  onChange={handleApiKeyChange}
-                  autoComplete="off"
-                />
-                {((llmProvider === 'google' && googleApiKey) || (llmProvider === 'openai' && openaiApiKey)) && (
-                  <button type="button" className="clear-key" onClick={clearApiKey} aria-label="API 키 지우기">
-                    ×
-                  </button>
-                )}
+                <span className="server-key-note">서버 .env 키 사용</span>
               </div>
               <button type="button" onClick={openProjectSavePanel} disabled={isSavingProject}>
                 프로젝트 저장
@@ -745,11 +820,45 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
             {messages.map((message) => (
               <div key={message.id}>
                 {message.role === 'ai' ? (
-                  <AiRow><div className="ai-box">{message.text}</div></AiRow>
+                  <AiRow>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '80%' }}>
+                      <div className="ai-box markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown></div>
+                      {message.suggestedQuestions && message.suggestedQuestions.length > 0 && (
+                        <div className="suggested-questions">
+                          {message.suggestedQuestions.map((q, idx) => (
+                            <button 
+                              key={idx} 
+                              className="suggested-chip" 
+                              onClick={() => handleSendMessage(files, q)}
+                            >
+                              {q}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </AiRow>
                 ) : message.role === 'user' ? (
                   <UserRow><div className="user-box">{message.text}</div></UserRow>
                 ) : message.role === 'asset' ? (
-                  renderVisualArtifact(message)
+                  <AiRow>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '80%' }}>
+                      {renderVisualArtifact(message)}
+                      {message.suggestedQuestions && message.suggestedQuestions.length > 0 && (
+                        <div className="suggested-questions">
+                          {message.suggestedQuestions.map((q, idx) => (
+                            <button 
+                              key={idx} 
+                              className="suggested-chip" 
+                              onClick={() => handleSendMessage(files, q)}
+                            >
+                              {q}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </AiRow>
                 ) : (
                   <div style={{ textAlign: 'center', color: '#94a3b8' }}>{message.text}</div>
                 )}
@@ -799,6 +908,14 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
           </BottomPromptInput>
         </MainQAEngine>
       </MainLayout>
+      
+      {selectedVisual && (
+        <ModalBackdrop onClick={() => setSelectedVisual(null)}>
+          <PreviewModalContainer onClick={(e) => e.stopPropagation()}>
+            {renderVisualArtifact(selectedVisual, false, true)}
+          </PreviewModalContainer>
+        </ModalBackdrop>
+      )}
     </Container>
   );
 }
