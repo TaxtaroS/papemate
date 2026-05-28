@@ -189,6 +189,8 @@ class AnalysisResponse(BaseModel):
     relevant_chunks: list[dict[str, Any]] = Field(default_factory=list)
     intent: str | None = None
     llm_used: bool = False
+    llm_key_received: bool = False
+    llm_key_source: str | None = None
     provider: str | None = None
     model: str | None = None
     llm_error: str | None = None

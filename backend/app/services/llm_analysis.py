@@ -5,6 +5,7 @@ import os
 from app.services.document_analysis import rank_relevant_chunks
 
 
+
 MAX_CONTEXT_CHARS = 18000
 
 
@@ -12,10 +13,6 @@ def _clip(text: str, limit: int = MAX_CONTEXT_CHARS) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "\n\n[문서가 길어 일부만 분석에 사용되었습니다.]"
-
-
-def _build_document_context(extracted_docs: list[dict]) -> str:
-    return _build_ranked_document_context("", extracted_docs)
 
 
 def _build_ranked_document_context(question: str, extracted_docs: list[dict]) -> str:

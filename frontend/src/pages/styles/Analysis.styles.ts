@@ -174,7 +174,7 @@ export const TopMenuBar = styled.div`
 
     .api-key-box {
       height: 36px;
-      min-width: 330px;
+      min-width: 210px;
       border: 1px solid #bfdbfe;
       border-radius: 6px;
       background: #f8fbff;
@@ -200,31 +200,11 @@ export const TopMenuBar = styled.div`
         outline: none;
       }
 
-      input {
-        min-width: 0;
-        flex: 1;
-        border: none;
-        background: transparent;
-        outline: none;
-        color: #1e293b;
+      .server-key-note {
+        color: #64748b;
         font-size: 12px;
         font-weight: 750;
-
-        &::placeholder {
-          color: #94a3b8;
-        }
-      }
-
-      .clear-key {
-        width: 20px;
-        height: 20px;
-        border: none;
-        border-radius: 5px;
-        background: #dbeafe;
-        color: #2563eb;
-        padding: 0;
-        font-size: 13px;
-        line-height: 1;
+        white-space: nowrap;
       }
     }
 

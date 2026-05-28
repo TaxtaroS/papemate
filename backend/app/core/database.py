@@ -3,13 +3,18 @@
 # 실제 데이터 모양은 backend/DATABASE_SCHEMA.md에 정리되어 있습니다.
 
 import os
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
 
-load_dotenv()
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+BACKEND_ENV_FILE = BACKEND_DIR / ".env"
+
+# 실행 위치가 project_v1이든 backend이든 항상 backend/.env만 읽습니다.
+load_dotenv(BACKEND_ENV_FILE)
 
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "papermate")

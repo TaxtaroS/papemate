@@ -429,6 +429,10 @@ backend/app/services/document_analysis.py
 
 현재 적용된 내용:
 
+- 공통 전처리 함수 `preprocess_korean_text()` 추가
+- 제어문자, 각주 표식, 불필요 기호 제거
+- `soynlp`가 설치되어 있으면 반복 문자/이모티콘 정규화
+- `pykospacing`이 설치되어 있고 텍스트가 짧으면 선택형 띄어쓰기 보정
 - 한국어 조사/어미 제거 기반 키워드 정규화
 - 도메인 용어 사전 추가
   - `RAG`
@@ -457,6 +461,7 @@ backend/app/services/document_analysis.py
 | --- | --- | --- |
 | WikiDocs, 딥 러닝을 이용한 자연어 처리 입문 - RAG, 에이전트, 파인튜닝까지 | https://wikidocs.net/book/2155 | TF-IDF, 코사인 유사도, RAG 텍스트 청킹 등 현재 프로젝트에 필요한 목차 선별 |
 | WikiDocs, 27-02 MemN으로 한국어 QA 해보기 | https://wikidocs.net/85470 | 한국어 QA에서 형태소 분석기와 사용자 사전을 사용해 이름/전문용어가 분리되는 문제를 줄이는 아이디어 |
+| WikiDocs, 02-10 한국어 전처리 패키지 | https://wikidocs.net/92961 | PyKoSpacing, Py-Hanspell, SOYNLP, Customized KoNLPy의 용도 비교와 한국어 반복 문자/사용자 사전 전처리 아이디어 |
 | WikiDocs, 04-04 TF-IDF | https://wikidocs.net/31698 | 흔한 단어보다 문서 안에서 중요한 단어에 더 높은 가중치를 주는 아이디어 |
 | WikiDocs, 22-03 랭체인을 이용한 텍스트 청킹 | https://wikidocs.net/288612 | 긴 텍스트를 LLM이 처리 가능한 크기의 청크로 나누는 RAG 전처리 아이디어 |
 

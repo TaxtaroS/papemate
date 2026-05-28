@@ -52,7 +52,19 @@ http://127.0.0.1:8000/api/health
 
 ## 환경 변수
 
-`.env` 또는 실행 환경에서 설정합니다.
+`.env` 또는 실행 환경에서 설정합니다.  
+실제 API 키는 브라우저에 넣지 않고 백엔드의 `backend/.env`에 저장합니다.
+
+처음 설정할 때:
+
+```powershell
+cd C:\Users\pokfamadm\Desktop\project\project_v1\backend
+Copy-Item .env.example .env
+notepad .env
+```
+
+`.env`에 실제 키를 넣은 뒤 FastAPI 서버를 재시작해야 반영됩니다.  
+`backend/.env`는 `.gitignore`에 들어가 있으므로 GitHub에 올리지 않습니다.
 
 | 이름 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -144,6 +156,10 @@ OpenAI/Gemini 키가 없어도 기본 분석이 작동하도록 `document_analys
 
 현재 적용된 개선:
 
+- 공통 전처리 함수 `preprocess_korean_text()`
+- 제어문자, 각주 표식, 불필요 기호 제거
+- `soynlp`가 설치되어 있으면 반복 문자/이모티콘 정규화
+- `pykospacing`이 설치되어 있고 텍스트가 짧으면 선택형 띄어쓰기 보정
 - 한국어 조사/어미 제거 기반 키워드 정규화
 - `RAG`, `LLM`, `BERT`, `OWPML`, `HWPX`, `FastAPI`, `MongoDB`, `정확도`, `데이터셋` 같은 도메인 용어 사전
 - `customized_konlpy`가 설치되어 있으면 사용자 사전 기반 형태소 분석 사용
@@ -155,9 +171,10 @@ OpenAI/Gemini 키가 없어도 기본 분석이 작동하도록 `document_analys
 
 - WikiDocs, **딥 러닝을 이용한 자연어 처리 입문 - RAG, 에이전트, 파인튜닝까지**, https://wikidocs.net/book/2155
 - WikiDocs, **27-02 MemN으로 한국어 QA 해보기**, https://wikidocs.net/85470
+- WikiDocs, **02-10 한국어 전처리 패키지**, https://wikidocs.net/92961
 - WikiDocs, **04-04 TF-IDF(Term Frequency-Inverse Document Frequency)**, https://wikidocs.net/31698
 - WikiDocs, **22-03 랭체인을 이용한 텍스트 청킹**, https://wikidocs.net/288612
-- 참고 내용: 한국어 QA에서 형태소 분석기와 사용자 사전을 사용하는 아이디어, TF-IDF 기반 중요도 계산, 긴 텍스트를 청크로 나누는 RAG 전처리 아이디어
+- 참고 내용: 한국어 QA에서 형태소 분석기와 사용자 사전을 사용하는 아이디어, 한국어 반복 문자 정규화/띄어쓰기 보정/soynlp 소개, TF-IDF 기반 중요도 계산, 긴 텍스트를 청크로 나누는 RAG 전처리 아이디어
 - 적용 방식: 예제 코드를 그대로 가져오지 않고, PaperMate의 로컬 문서 분석 키워드 추출에 맞게 선택형 토큰화 구조로 재구성
 
 ## HWPX/OWPML 처리

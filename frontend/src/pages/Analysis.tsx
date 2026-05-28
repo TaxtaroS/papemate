@@ -42,6 +42,20 @@ const createInviteCode = () => {
 
 const formatDate = () => new Date().toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1);
 const getFileKey = (file) => `${file.name}-${file.size}-${file.lastModified || 0}`;
+const isUploadableFile = (file) => typeof File !== 'undefined' && file instanceof File;
+
+const getReadableErrorMessage = (error) => {
+  const detail = error?.response?.data?.detail || error?.response?.data?.message || error?.message;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => item?.msg || item?.message || JSON.stringify(item))
+      .join(', ');
+  }
+  if (detail && typeof detail === 'object') {
+    return detail.message || detail.detail || JSON.stringify(detail);
+  }
+  return detail || '알 수 없는 오류가 발생했습니다.';
+};
 
 const toStoredFiles = (files) =>
   files.map((file) => ({
@@ -165,8 +179,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
   const [files, setFiles] = useState([]);
   const [promptText, setPromptText] = useState('');
   const [llmProvider, setLlmProvider] = useState(() => sessionStorage.getItem('papermate.llmProvider') || 'openai');
-  const [openaiApiKey, setOpenaiApiKey] = useState(() => sessionStorage.getItem('papermate.openaiApiKey') || '');
-  const [googleApiKey, setGoogleApiKey] = useState(() => sessionStorage.getItem('papermate.googleApiKey') || '');
   const [messages, setMessages] = useState([
     { id: 'intro', role: 'ai', text: '분석을 시작하려면 파일을 업로드하거나 차트를 생성하세요.' },
   ]);
@@ -208,29 +220,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     const nextProvider = event.target.value;
     setLlmProvider(nextProvider);
     sessionStorage.setItem('papermate.llmProvider', nextProvider);
-  };
-
-  const handleApiKeyChange = (event) => {
-    const nextKey = event.target.value.trim();
-    if (llmProvider === 'google') {
-      setGoogleApiKey(nextKey);
-      if (nextKey) sessionStorage.setItem('papermate.googleApiKey', nextKey);
-      else sessionStorage.removeItem('papermate.googleApiKey');
-      return;
-    }
-    setOpenaiApiKey(nextKey);
-    if (nextKey) sessionStorage.setItem('papermate.openaiApiKey', nextKey);
-    else sessionStorage.removeItem('papermate.openaiApiKey');
-  };
-
-  const clearApiKey = () => {
-    if (llmProvider === 'google') {
-      setGoogleApiKey('');
-      sessionStorage.removeItem('papermate.googleApiKey');
-      return;
-    }
-    setOpenaiApiKey('');
-    sessionStorage.removeItem('papermate.openaiApiKey');
   };
 
   const copyInviteCode = async () => {
@@ -311,6 +300,12 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     }
 
     const pendingFiles = [...filesToSend];
+    const uploadableFiles = pendingFiles.filter(isUploadableFile);
+    if (pendingFiles.length > 0 && uploadableFiles.length === 0) {
+      window.alert('저장된 파일 기록은 이름만 복원된 상태입니다. 실제 분석을 하려면 파일을 다시 선택해주세요.');
+      return;
+    }
+
     const question = nextQuestion || '업로드한 문서를 요약해줘';
     setPromptText('');
     setFiles([]);
@@ -335,14 +330,22 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     setIsAnalyzing(true);
 
     try {
-      const response = await analysisAPI.chat(question, pendingFiles, {
+      const response = await analysisAPI.chat(question, uploadableFiles, {
         provider: llmProvider,
-        openaiApiKey,
-        googleApiKey,
       });
-      const providerNote = response.data?.provider
-        ? `\n\n분석 엔진: ${response.data.provider === 'google' ? 'Google Gemini' : 'OpenAI'}${response.data.model ? ` (${response.data.model})` : ''}`
-        : '';
+      const providerName = response.data?.provider === 'google' ? 'Google Gemini' : 'OpenAI';
+      const keySourceLabel = response.data?.llm_key_source === 'request'
+        ? '직접 입력'
+        : response.data?.llm_key_source === 'env'
+          ? '서버 환경변수'
+          : response.data?.llm_key_received
+            ? '확인됨'
+            : '없음';
+      const providerNote = response.data?.llm_used
+        ? `\n\n분석 엔진: ${providerName}${response.data.model ? ` (${response.data.model})` : ''}\nAPI 키: ${keySourceLabel}`
+        : response.data?.llm_error
+          ? `\n\n분석 엔진: 기본 문서 추출\nAPI 키: ${keySourceLabel}\nLLM 호출 실패: ${response.data.llm_error}`
+          : '';
       const answer = response.data?.answer || response.data?.summary || buildLocalFallbackAnswer(question, pendingFiles, messages);
       const successMessage = pendingFiles.length > 0
         ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${fileNames}` }
@@ -355,7 +358,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
       setMessages(messagesWithAnswer);
       upsertRecentConversation(messagesWithAnswer, question, pendingFiles);
     } catch (error) {
-      const serverMessage = error.response?.data?.detail || error.response?.data?.message || error.message || '알 수 없는 오류가 발생했습니다.';
+      const serverMessage = getReadableErrorMessage(error);
       const failureMessage = pendingFiles.length > 0
         ? { id: `upload-failure-${Date.now()}`, role: 'system', text: `파일 전송 실패: ${serverMessage}` }
         : null;
@@ -697,18 +700,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
                   <option value="openai">OpenAI</option>
                   <option value="google">Google</option>
                 </select>
-                <input
-                  type="password"
-                  value={llmProvider === 'google' ? googleApiKey : openaiApiKey}
-                  placeholder={llmProvider === 'google' ? 'Google Gemini API key' : 'OpenAI API key'}
-                  onChange={handleApiKeyChange}
-                  autoComplete="off"
-                />
-                {((llmProvider === 'google' && googleApiKey) || (llmProvider === 'openai' && openaiApiKey)) && (
-                  <button type="button" className="clear-key" onClick={clearApiKey} aria-label="API 키 지우기">
-                    ×
-                  </button>
-                )}
+                <span className="server-key-note">서버 .env 키 사용</span>
               </div>
               <button type="button" onClick={openProjectSavePanel} disabled={isSavingProject}>
                 프로젝트 저장

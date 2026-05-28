@@ -53,11 +53,11 @@ npx tsc --noEmit
 npm run build
 ```
  백엔드 실행
- cd C:\Users\pokfamadm\Desktop\project\project_v1\backend
+ cd backend
 .\venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 
 프론트엔드 실행
-cd C:\Users\pokfamadm\Desktop\project\project_v1\frontend
+cd frontend
 npm install
 npm start
 

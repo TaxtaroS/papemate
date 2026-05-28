@@ -1,5 +1,7 @@
 # 초보자 안내: 문서 파일 업로드와 분석 요청을 처리하는 API 라우터입니다.
 
+import os
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from ..services.document_analysis import build_analysis_answer, extract_file_text
@@ -50,13 +52,22 @@ async def analyze_chat(
     # fallback_answer는 OpenAI 키가 없어도 항상 만들 수 있는 기본 분석입니다.
     # 키워드와 중요 문장 후보를 Python 로직으로 추출합니다.
     fallback_answer = build_analysis_answer(question, extracted_docs)
+    selected_provider = llm_provider.strip() or "openai"
+    if selected_provider.lower() == "google":
+        request_key = google_api_key.strip()
+        env_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    else:
+        request_key = openai_api_key.strip()
+        env_key = os.getenv("OPENAI_API_KEY")
+    llm_key_source = "request" if request_key else "env" if env_key else "none"
+    llm_key_received = llm_key_source != "none"
 
     # analyze_with_llm은 선택한 제공자(OpenAI/Gemini)의 키가 있을 때만 외부 API를 호출합니다.
-    # 키가 없거나 호출 실패 시 None을 반환하고, fallback_answer만 프론트에 보냅니다.
+    # 키가 없거나 호출 실패 시 실패 이유를 llm_error에 담고, fallback_answer만 프론트에 보냅니다.
     llm_answer = analyze_with_llm(
         question,
         extracted_docs,
-        provider=llm_provider.strip() or "openai",
+        provider=selected_provider,
         openai_api_key=openai_api_key.strip() or None,
         google_api_key=google_api_key.strip() or None,
     )
@@ -67,6 +78,8 @@ async def analyze_chat(
             "provider": llm_answer.get("provider"),
             "model": llm_answer.get("model"),
             "llm_error": llm_answer.get("llm_error"),
+            "llm_key_received": llm_key_received,
+            "llm_key_source": llm_key_source,
         }
 
     # LLM 답변이 성공하면 fallback의 documents/keywords 같은 구조 정보와
@@ -74,4 +87,6 @@ async def analyze_chat(
     return {
         **fallback_answer,
         **llm_answer,
+        "llm_key_received": llm_key_received,
+        "llm_key_source": llm_key_source,
     }
