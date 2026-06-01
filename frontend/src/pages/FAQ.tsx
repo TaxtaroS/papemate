@@ -31,6 +31,87 @@ const FAQContainer = styled.div`
   &::-webkit-scrollbar-thumb:hover {
     background-color: rgba(100, 116, 139, 0.42);
   }
+
+  .popup-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 80;
+    padding: 18px;
+  }
+
+  .popup-card {
+    width: min(640px, 100%);
+    background: #ffffff;
+    border-radius: 22px;
+    padding: 28px;
+    box-shadow: 0 28px 60px rgba(15, 23, 42, 0.18);
+    position: relative;
+  }
+
+  .popup-card h3 {
+    margin: 0 0 16px;
+    font-size: 22px;
+    color: #0f172a;
+  }
+
+  .popup-card p {
+    margin: 0 0 18px;
+    color: #475569;
+    line-height: 1.8;
+  }
+
+  .popup-card textarea {
+    width: 100%;
+    min-height: 140px;
+    border: 1px solid #cbd5e1;
+    border-radius: 14px;
+    padding: 16px;
+    resize: vertical;
+    font-size: 14px;
+    color: #0f172a;
+    background: #f8fafc;
+    box-sizing: border-box;
+  }
+
+  .popup-card .contact-info {
+    margin: 20px 0;
+    padding: 16px;
+    background: #f1f5f9;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    word-break: break-all;
+    color: #0f172a;
+  }
+
+  .popup-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+  }
+
+  .popup-button {
+    cursor: pointer;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 18px;
+    font-weight: 700;
+  }
+
+  .popup-button.primary {
+    background: #0f766e;
+    color: #ffffff;
+  }
+
+  .popup-button.secondary {
+    background: #f8fafc;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+  }
 `;
 
 const FAQContent = styled.div`
