@@ -288,7 +288,7 @@ def _analyze_with_openai(question: str, extracted_docs: list[dict], api_key: str
         return _llm_error("openai 패키지가 설치되어 있지 않습니다.", "openai")
 
     model = settings.openai_model
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, timeout=45.0, max_retries=0)
     system_prompt, user_prompt = _build_prompts(question, extracted_docs, analysis_text)
 
     try:
@@ -402,7 +402,7 @@ def generate_chat_title(
     
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(api_key=api_key, timeout=20.0, max_retries=0)
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         response = client.chat.completions.create(
             model=model,

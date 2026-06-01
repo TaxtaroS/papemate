@@ -31,9 +31,6 @@ const CONNECTION_ERROR_MESSAGE =
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
 });
 
 // 모든 API 요청을 보내기 직전에 실행됩니다.
@@ -66,11 +63,23 @@ apiClient.interceptors.response.use(
     }
 
     if (error.response?.status === 401 && !isAuthSubmitRequest) {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('isLoggedIn');
-      localStorage.removeItem('username');
-      localStorage.removeItem('userId');
-      window.location.reload();
+      // Only treat this as a global auth-expiry event when the failed request
+      // actually included an Authorization header. This prevents unrelated
+      // 401s (e.g. from third-party endpoints or misrouted requests without
+      // credentials) from clearing the user's stored token and forcing a reload.
+      const hadAuthHeader = Boolean(error.config?.headers && (error.config.headers.Authorization || error.config.headers.authorization));
+
+      if (hadAuthHeader) {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('isLoggedIn');
+        localStorage.removeItem('username');
+        localStorage.removeItem('userId');
+        window.location.reload();
+      } else {
+        // Leave token intact; log for debugging so we can inspect which endpoint returned 401.
+        // eslint-disable-next-line no-console
+        console.warn('Received 401 for request without Authorization header:', requestUrl);
+      }
     }
     return Promise.reject(error);
   }
@@ -122,9 +131,7 @@ export const analysisAPI = {
     formData.append('llm_provider', options.provider || 'openai');
     if (analysisText) formData.append('analysis_text', analysisText);
 
-    return apiClient.post('/api/analysis/title', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    return apiClient.post('/api/analysis/title', formData);
   },
   createVisual: (type: string, files: File[], analysisText = '') => {
     const formData = new FormData();
