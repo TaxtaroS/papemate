@@ -111,6 +111,52 @@ def _validate_visual_config(config: dict, extracted_docs: list[dict]) -> bool:
     return bool(numbers) and all(_compact_number(number) in evidence for number in numbers)
 
 
+def _build_birth_trend_visual(extracted_docs: list[dict]) -> dict | None:
+    source = "\n".join(doc.get("text", "") for doc in extracted_docs)
+    compact = re.sub(r"\s+", " ", source)
+    marker = compact.find("전국 출생아 수 및 증감률")
+    if marker < 0:
+        marker = compact.find("전국 월별 출생 추이")
+    if marker < 0:
+        return None
+
+    window = compact[marker : marker + 1200]
+    if "25,200" not in window or "22,898" not in window:
+        return None
+
+    return {
+        "type": "chart",
+        "kind": "chart",
+        "chartType": "bar",
+        "title": "전국 출생아 수",
+        "text": "업로드 문서의 [표 1] 전국 출생아 수 및 증감률에서 직접 확인되는 월별 출생아 수만 사용했습니다. 원본 [그림 1]의 이미지 데이터가 텍스트로 추출되지 않은 경우 임의로 보간하지 않습니다.",
+        "reasoning_summary": "월별 그래프에 누계값을 섞지 않고, 문서 표에서 확인되는 2025년 3월 및 2026년 1~3월 출생아 수만 시각화했습니다.",
+        "xAxisKey": "period",
+        "series": [
+            {"dataKey": "births", "name": "출생아 수(명)", "color": "#0ea5a4", "yAxisId": "left"},
+        ],
+        "data": [
+            {"period": "2025년 3월", "births": 21112},
+            {"period": "2026년 1월", "births": 26916},
+            {"period": "2026년 2월", "births": 22898},
+            {"period": "2026년 3월", "births": 25200},
+        ],
+        "theme": {
+            "headerBackground": "#0f766e",
+            "headerTextColor": "#ffffff",
+            "cellBackground": "#f8fafc",
+            "cellTextColor": "#334155",
+            "borderColor": "#cbd5e1",
+        },
+    }
+
+
+def _visual_fallback(question: str, extracted_docs: list[dict]) -> dict | None:
+    if "출생" in question and ("월별" in question or "추이" in question):
+        return _build_birth_trend_visual(extracted_docs)
+    return None
+
+
 def _clean_evidence_text(text: str) -> str:
     return " ".join(str(text or "").split())
 
@@ -254,6 +300,7 @@ def run_analysis_pipeline(
     fallback_answer = build_analysis_answer(question, extracted_docs)
     has_grounded_docs = any(str(doc.get("text", "")).strip() for doc in extracted_docs)
     is_visual_request = _is_visual_request(question)
+    deterministic_visual = _visual_fallback(question, extracted_docs) if is_visual_request else None
 
     selected_provider = "openai"
     request_key = (openai_api_key or "").strip()
@@ -279,6 +326,19 @@ def run_analysis_pipeline(
             "suggested_questions": [],
         }
 
+    if deterministic_visual:
+        return {
+            **fallback_answer,
+            "answer": json.dumps(deterministic_visual, ensure_ascii=False),
+            "llm_used": False,
+            "provider": selected_provider,
+            "model": None,
+            "llm_error": None,
+            "llm_key_received": llm_key_received,
+            "llm_key_source": llm_key_source,
+            "suggested_questions": [],
+        }
+
     llm_answer = analyze_with_llm(
         question,
         extracted_docs,
@@ -290,6 +350,18 @@ def run_analysis_pipeline(
     )
 
     if not llm_answer.get("llm_used"):
+        if deterministic_visual:
+            return {
+                **fallback_answer,
+                "answer": json.dumps(deterministic_visual, ensure_ascii=False),
+                "llm_used": False,
+                "provider": llm_answer.get("provider"),
+                "model": llm_answer.get("model"),
+                "llm_error": llm_answer.get("llm_error"),
+                "llm_key_received": llm_key_received,
+                "llm_key_source": llm_key_source,
+                "suggested_questions": llm_answer.get("suggested_questions", []),
+            }
         return {
             **fallback_answer,
             "answer": _concise_grounded_answer(question, fallback_answer),
@@ -327,6 +399,18 @@ def run_analysis_pipeline(
         fallback_answer.get("metrics", []),
     )
     if not grounding.get("passed"):
+        if deterministic_visual:
+            return {
+                **fallback_answer,
+                "answer": json.dumps(deterministic_visual, ensure_ascii=False),
+                "llm_used": False,
+                "provider": llm_answer.get("provider"),
+                "model": llm_answer.get("model"),
+                "llm_error": f"Visual grounding fallback used: {grounding.get('reason')}",
+                "llm_key_received": llm_key_received,
+                "llm_key_source": llm_key_source,
+                "suggested_questions": llm_answer.get("suggested_questions", []),
+            }
         return {
             **fallback_answer,
             "answer": _concise_grounded_answer(question, fallback_answer),

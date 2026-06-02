@@ -1,9 +1,10 @@
 # 초보자 안내: OpenAI 또는 Gemini 같은 외부 AI API를 호출해 더 자연스러운 분석 답변을 만드는 서비스입니다.
 
+import json
 import os
+import re
 
-from ..core.config import settings
-
+from app.core.config import settings
 
 
 MAX_CONTEXT_CHARS = 100000
@@ -15,31 +16,17 @@ def _clip(text: str, limit: int = MAX_CONTEXT_CHARS) -> str:
     return text[:limit] + "\n\n[문서가 길어 일부만 분석에 사용되었습니다.]"
 
 
-def _build_relevant_chunk_context(relevant_chunks: list[dict] | None = None) -> str:
-    chunks = relevant_chunks or []
-    if not chunks:
-        return ""
-
-    lines = ["[질문 관련 근거 구간]"]
-    for index, chunk in enumerate(chunks[:6], start=1):
-        filename = chunk.get("filename", "unknown")
-        source_label = chunk.get("source_label") or f"Chunk {chunk.get('chunk_index', index)}"
-        score = chunk.get("score", "")
-        text = _clip(str(chunk.get("text", "")), 1200)
-        lines.append(f"{index}. {filename} / {source_label} / score={score}\n{text}")
-    return "\n\n".join(lines)
-
-
 def _build_ranked_document_context(
     question: str,
     extracted_docs: list[dict],
     relevant_chunks: list[dict] | None = None,
 ) -> str:
-    blocks = []
-    chunk_context = _build_relevant_chunk_context(relevant_chunks)
-    if chunk_context:
-        blocks.append(chunk_context)
+    # 🚨 [CRITICAL FIX]: Do NOT use rank_relevant_chunks (TF-IDF) when using LLMs.
+    # The local chunking algorithm destroys the document structure and has a hardcoded bias
+    # for numbers/metrics, which hides crucial parts like the Introduction from the AI.
+    # GPT-4o-mini has a large enough context window to read the document directly.
 
+    blocks = []
     for index, doc in enumerate(extracted_docs, start=1):
         blocks.append(
             "\n".join(
@@ -83,6 +70,94 @@ def _is_visual_request(question: str) -> bool:
     return any(keyword in lowered for keyword in visual_keywords)
 
 
+def _extract_nationwide_monthly_births(text: str) -> dict | None:
+    """Extract the official nationwide monthly birth counts from population trend tables."""
+
+    compact_text = re.sub(r"\s+", " ", text or "")
+    start = compact_text.find("2023.12월")
+    if start < 0:
+        start = compact_text.find("2024. 1월")
+    if start < 0:
+        start = compact_text.find("2024.1월")
+    if start < 0:
+        return None
+
+    end_candidates = [
+        compact_text.find("2. 출생", start),
+        compact_text.find("(단위: 명, %) 전 국", start),
+    ]
+    end_candidates = [index for index in end_candidates if index > start]
+    end = min(end_candidates) if end_candidates else min(len(compact_text), start + 8000)
+    source = compact_text[start:end]
+
+    current_year = ""
+    by_month: dict[int, dict] = {}
+    row_pattern = re.compile(r"(?:(20\d{2}p?)\.\s*)?(\d{1,2})월\s+([0-9,]+)")
+
+    for match in row_pattern.finditer(source):
+        year, month_text, births_text = match.groups()
+        if year:
+            current_year = year
+        if current_year not in {"2024", "2025p", "2026p"}:
+            continue
+
+        month = int(month_text)
+        if not 1 <= month <= 12:
+            continue
+
+        birth_digits = births_text.replace(",", "")
+        if re.fullmatch(r"\d{2},\d{2}", births_text):
+            birth_digits += "0"
+        row = by_month.setdefault(month, {"month": f"{month}월", "monthOrder": month})
+        row[current_year] = int(birth_digits)
+
+    data = [by_month[month] for month in sorted(by_month)]
+    if not data:
+        return None
+
+    series = []
+    for year, color in [("2024", "#94a3b8"), ("2025p", "#64748b"), ("2026p", "#0f172a")]:
+        if any(row.get(year) is not None for row in data):
+            series.append({"dataKey": year, "name": f"{year}년" if not year.endswith("p") else f"{year[:-1]}년p", "color": color, "yAxisId": "left"})
+
+    return {
+        "title": "전국 월별 출생아 수",
+        "source": "인구동태건수 및 동태율 / 전국 월별 출생 추이",
+        "chartType": "line",
+        "xAxisKey": "month",
+        "series": series,
+        "data": data,
+    }
+
+
+def _build_structured_visual_context(question: str, extracted_docs: list[dict]) -> str:
+    """Provide deterministic table data to the LLM when a known statistical table is requested."""
+
+    q = question or ""
+    if not _is_visual_request(q):
+        return ""
+
+    wants_birth_trend = (
+        ("출생" in q or "출생아" in q)
+        and ("월별" in q or "추이" in q or "전국" in q or "그래프" in q or "차트" in q)
+    )
+    if not wants_birth_trend:
+        return ""
+
+    for doc in extracted_docs or []:
+        parsed = _extract_nationwide_monthly_births(doc.get("text", ""))
+        if not parsed:
+            continue
+        parsed["filename"] = doc.get("filename", "unknown")
+        return (
+            "[Structured Visual Data - MUST USE THIS FOR THE CHART]\n"
+            "The values below were parsed deterministically from the uploaded document table. "
+            "When the user asks for nationwide monthly birth trend, use these exact values and do not infer replacements.\n"
+            f"{json.dumps(parsed, ensure_ascii=False)}\n\n"
+        )
+    return ""
+
+
 def _build_prompts(
     question: str,
     extracted_docs: list[dict],
@@ -90,6 +165,7 @@ def _build_prompts(
     relevant_chunks: list[dict] | None = None,
 ) -> tuple[str, str]:
     document_context = _build_ranked_document_context(question, extracted_docs, relevant_chunks)
+    structured_visual_context = _build_structured_visual_context(question, extracted_docs)
 
     core_prompt = (
         "You are 'PaperMate', a top-tier AI research assistant designed to help users analyze and visualize various documents, including academic papers, business reports, and proposals.\n\n"
@@ -127,6 +203,7 @@ def _build_prompts(
         "- [Monthly Trend Rule - CRITICAL]: For monthly trend graphs, the X-axis MUST be the month labels such as '1월', '2월', ... '12월'. Each year must be a different series, for example '2024년', '2025년p', '2026년p'. Do NOT flatten the data into labels like '2024-03', '2025-03', '2026-03' on one line.\n"
         "- [Graph Request Priority]: If the user asks for a graph/chart, return type='chart' with chartType, xAxisKey, series, and data. Do not downgrade to a table just because the original data came from a table.\n"
         "- [Grounded Visual Data]: Every data value in the JSON must be directly extractable from the uploaded document context. If a month/year/source value is missing, use null rather than inventing a value.\n"
+        "- [Structured Data Priority]: If a [Structured Visual Data] block is provided in the user prompt, you MUST use that exact data for the chart. Do not replace it with nearby numbers from the raw text.\n"
         "- 📊 [Data Extraction Rule]: For charts (bar, line, pie), you MUST extract multiple data points (e.g., time series trends over several months/years, or comparisons across multiple categories). DO NOT generate a chart with only a single data point on the X-axis. If the document only has one data point, extract related metrics to form a comparison.\n"
         "- 🚨 [STRICT JSON RULE]: When requested to visualize, you MUST return ONLY a single, raw JSON object. DO NOT include markdown code blocks (e.g., ```json), DO NOT add any explanatory text outside the JSON, and DO NOT append 'SUGGESTED_QUESTIONS'.\n"
         "- 🎨 [Design Rule]: DO NOT blindly copy the example colors. Generate a fresh, context-aware color palette (HEX codes) for both 'theme' and 'series' that matches the document's vibe.\n"
@@ -167,7 +244,7 @@ def _build_prompts(
         system_prompt = core_prompt + text_mode_prompt
 
     history_block = f"[Previous Conversation History]\n{analysis_text}\n\n" if analysis_text else ""
-    doc_block = f"[Uploaded Document Context]\n{document_context}\n\n" if document_context else ""
+    doc_block = f"{structured_visual_context}[Uploaded Document Context]\n{document_context}\n\n" if document_context else structured_visual_context
 
     if question and question.strip():
         user_prompt = f"""
@@ -224,7 +301,7 @@ def _analyze_with_openai(
         return _llm_error("openai 패키지가 설치되어 있지 않습니다.", "openai")
 
     model = settings.openai_model
-    client = OpenAI(api_key=api_key, timeout=45.0, max_retries=0)
+    client = OpenAI(api_key=api_key)
     system_prompt, user_prompt = _build_prompts(question, extracted_docs, analysis_text, relevant_chunks)
 
     try:
@@ -345,7 +422,7 @@ def generate_chat_title(
     
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=api_key, timeout=20.0, max_retries=0)
+        client = OpenAI(api_key=api_key)
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         response = client.chat.completions.create(
             model=model,
