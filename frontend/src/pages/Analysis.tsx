@@ -47,7 +47,29 @@ const createInviteCode = () => {
 };
 
 const formatDate = () => new Date().toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1);
+const nowIso = () => new Date().toISOString();
+const formatDateTime = (value) => {
+  if (!value) return '';
+  const text = String(value).trim();
+  if (!/[T\s]\d{1,2}:\d{2}/.test(text)) return text;
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+
+  const date = parsed.toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1);
+  const time = `${String(parsed.getHours()).padStart(2, '0')}:${String(parsed.getMinutes()).padStart(2, '0')}`;
+  return `${date} ${time}`;
+};
+const getAssetTimestamp = (asset) => formatDateTime(asset?.savedAt || asset?.createdAt || asset?.updatedAt || asset?.date);
 const getFileKey = (file) => `${file.name}-${file.size}-${file.lastModified || 0}`;
+const mergeUniqueFiles = (...fileGroups) => {
+  const seen = new Set();
+  return fileGroups.flat().filter((file) => {
+    const key = getFileKey(file);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 const isUploadableFile = (file) =>
   (typeof File !== 'undefined' && file instanceof File) ||
   (typeof Blob !== 'undefined' && file instanceof Blob);
@@ -78,6 +100,11 @@ const toStoredThread = (messages) =>
       series: message.series,
       data: message.data,
       theme: message.theme,
+      date: message.date,
+      time: message.time,
+      createdAt: message.createdAt,
+      updatedAt: message.updatedAt,
+      savedAt: message.savedAt,
     }));
 
 const hasVisualPayload = (message: any = {}) => {
@@ -447,10 +474,11 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     const isPdf = mime === 'application/pdf' || extension === 'pdf';
     const isImage = mime.startsWith('image/');
     const isText = mime.startsWith('text/') || ['txt', 'csv', 'tsv', 'md', 'json'].includes(extension);
+    const isConvertibleDocument = ['hwp', 'hwpx'].includes(extension);
 
     if (isPdf || isImage) {
       const url = URL.createObjectURL(selectedSourceFile);
-      setSourcePreview({ kind: isPdf ? 'pdf' : 'image', url, text: '', message: '' });
+      setSourcePreview({ kind: isPdf ? 'pdf' : 'image', url, text: '', message: '', fileKey: getFileKey(selectedSourceFile) });
       return () => URL.revokeObjectURL(url);
     }
 
@@ -467,6 +495,37 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
         });
       return () => {
         cancelled = true;
+      };
+    }
+
+    if (isConvertibleDocument) {
+      let cancelled = false;
+      let previewUrl = '';
+      setSourcePreview({
+        kind: 'loading',
+        url: '',
+        text: '',
+        message: 'HWP/HWPX 문서를 파싱해 PDF 원본 미리보기를 준비하는 중입니다.',
+      });
+
+      analysisAPI.previewDocument(selectedSourceFile)
+        .then((response) => {
+          if (cancelled) return;
+          const pdfBlob = response.data instanceof Blob
+            ? response.data
+            : new Blob([response.data], { type: 'application/pdf' });
+          previewUrl = URL.createObjectURL(pdfBlob);
+          setSourcePreview({ kind: 'pdf', url: previewUrl, text: '', message: '', fileKey: getFileKey(selectedSourceFile) });
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          const message = error.response?.data?.detail || error.userMessage || '문서를 PDF 미리보기로 변환하지 못했습니다.';
+          setSourcePreview({ kind: 'meta', url: '', text: '', message });
+        });
+
+      return () => {
+        cancelled = true;
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
       };
     }
 
@@ -493,15 +552,23 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     const selectedFiles = Array.from(event.target.files || []);
     if (selectedFiles.length === 0) return;
 
-    const nextFiles = [...files, ...selectedFiles];
+    const nextFiles = mergeUniqueFiles(files, selectedFiles);
+    const nextActiveFiles = mergeUniqueFiles(activeFiles, selectedFiles);
     setFiles(nextFiles);
+    setActiveFiles(nextActiveFiles);
+    setSelectedSourceKey(getFileKey(selectedFiles[0]));
     event.target.value = '';
     window.setTimeout(() => promptInputRef.current?.focus(), 0);
   };
 
   const handleRemoveFile = (file) => {
     const nextFiles = files.filter((item) => getFileKey(item) !== getFileKey(file));
+    const nextActiveFiles = activeFiles.filter((item) => getFileKey(item) !== getFileKey(file));
     setFiles(nextFiles);
+    setActiveFiles(nextActiveFiles);
+    if (selectedSourceKey === getFileKey(file)) {
+      setSelectedSourceKey(nextActiveFiles[0] ? getFileKey(nextActiveFiles[0]) : '');
+    }
   };
 
   const handlePromptEnter = (event) => {
@@ -541,6 +608,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
         title,
         question,
         date: formatDate(),
+        updatedAt: nowIso(),
         inviteCode: currentProject?.inviteCode || restoredData?.inviteCode,
         files: toStoredFiles(nextFiles),
         thread: storedThread,
@@ -574,7 +642,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
         question,
         files: toStoredFiles(nextFiles),
         thread: storedThread,
-        updatedAt: formatDate(),
+        updatedAt: nowIso(),
         date: formatDate(),
       };
       return syncedProject;
@@ -619,9 +687,9 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
 
     const fileNames = pendingFiles.map((file) => file.name).filter(Boolean).join(', ');
     const fileMessage = hasNewUpload
-      ? { id: `uploaded-files-${Date.now()}`, role: 'system', text: `업로드된 파일: ${fileNames}` }
+      ? { id: `uploaded-files-${Date.now()}`, role: 'system', text: `업로드된 파일: ${fileNames}`, createdAt: nowIso() }
       : null;
-    const userMessage = { id: `user-${Date.now()}`, role: 'user', text: question };
+    const userMessage = { id: `user-${Date.now()}`, role: 'user', text: question, createdAt: nowIso() };
     const messagesWithQuestion = [...messages, ...(fileMessage ? [fileMessage] : []), userMessage];
     const isNewConversation = recentConversationIdRef.current.startsWith('conversation-');
 
@@ -676,7 +744,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
         : '';
       const answer = response.data?.answer || response.data?.summary || buildLocalFallbackAnswer(question, pendingFiles, messages);
       const successMessage = hasNewUpload
-        ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${fileNames}` }
+        ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${fileNames}`, createdAt: nowIso() }
         : null;
       const suggestedQuestions = response.data?.suggested_questions || [];
 
@@ -704,6 +772,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
           role: 'asset',
           title: parsedAssetData.title || (question.includes('차트') || question.includes('표') || question.includes('비교') || question.includes('그래프') ? question : '데이터 시각화'),
           saved: false,
+          createdAt: nowIso(),
           suggestedQuestions,
         };
         messagesWithAnswer.push(newVisual);
@@ -711,7 +780,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
         // 새로 생성된 visual을 상단 보관함(generatedVisuals)에도 추가
         setGeneratedVisuals((prev) => [newVisual, ...prev].slice(0, MAX_VISUALS));
       } else {
-        messagesWithAnswer.push({ id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}`, suggestedQuestions });
+        messagesWithAnswer.push({ id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}`, createdAt: nowIso(), suggestedQuestions });
       }
 
       setMessages(messagesWithAnswer);
@@ -734,7 +803,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     } catch (error) {
       const serverMessage = error.response?.data?.detail || error.response?.data?.message || error.message || '알 수 없는 오류가 발생했습니다.';
       const failureMessage = hasNewUpload
-        ? { id: `upload-failure-${Date.now()}`, role: 'system', text: `파일 전송 실패: ${serverMessage}` }
+        ? { id: `upload-failure-${Date.now()}`, role: 'system', text: `파일 전송 실패: ${serverMessage}`, createdAt: nowIso() }
         : null;
       const messagesWithAnswer = [
         ...messagesWithQuestion,
@@ -745,6 +814,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
           text: [`서버 분석 실패: ${serverMessage}`, buildLocalFallbackAnswer(question, pendingFiles, messages)]
             .filter(Boolean)
             .join('\n\n'),
+          createdAt: nowIso(),
         },
       ];
       setMessages(messagesWithAnswer);
@@ -757,9 +827,15 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
 
   const buildProjectRecord = (title, existingProject = null) => {
     const today = formatDate();
+    const savedAt = nowIso();
     const storedVisuals = [...generatedVisuals, ...visuals]
       .filter(isVisualStorageItem)
       .filter((visual, index, arr) => arr.findIndex((item) => item.id === visual.id) === index)
+      .map((visual) => ({
+        ...visual,
+        createdAt: visual.createdAt || savedAt,
+        updatedAt: visual.updatedAt || savedAt,
+      }))
       .slice(0, MAX_VISUALS);
 
     return {
@@ -768,7 +844,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
       type: files.some((file) => file.name?.toLowerCase().endsWith('.hwp') || file.name?.toLowerCase().endsWith('.hwpx')) ? 'HWP' : '분석',
       title,
       owner: localStorage.getItem('username') || 'Guest',
-      updatedAt: today,
+      createdAt: existingProject?.createdAt || savedAt,
+      updatedAt: savedAt,
       date: today,
       charts: storedVisuals.length,
       isHwp: files.some((file) => file.name?.toLowerCase().endsWith('.hwp') || file.name?.toLowerCase().endsWith('.hwpx')),
@@ -797,6 +874,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
       title: projectRecord.title,
       question: lastUserMessage?.text || projectRecord.title,
       date: projectRecord.date,
+      updatedAt: projectRecord.updatedAt,
       inviteCode: projectRecord.inviteCode,
       thread: projectRecord.thread,
     };
@@ -899,7 +977,16 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
 
     setIsSavingProject(true);
     try {
-      const savedAsset = { ...asset, saved: true, projectTitle: title.trim(), date: formatDate() };
+      const savedAt = nowIso();
+      const savedAsset = {
+        ...asset,
+        saved: true,
+        projectTitle: title.trim(),
+        date: formatDate(),
+        createdAt: asset.createdAt || savedAt,
+        savedAt,
+        updatedAt: savedAt,
+      };
       const projectRecord = buildProjectRecord(title.trim(), existingProject);
       const previouslySavedVisuals = Array.isArray(existingProject?.visuals)
         ? existingProject.visuals.filter(isVisualStorageItem)
@@ -929,7 +1016,10 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     <VisualArtifact className={isModal ? 'is-modal' : ''}>
       <div className="artifact-head">
         <h4>{asset.title}</h4>
-        <span>{asset.saved ? '저장됨' : '생성됨'}</span>
+        <div className="artifact-meta">
+          <span>{asset.saved ? '저장됨' : '생성됨'}</span>
+          {getAssetTimestamp(asset) && <time dateTime={asset.savedAt || asset.createdAt || asset.updatedAt || ''}>{getAssetTimestamp(asset)}</time>}
+        </div>
       </div>
       <div className="artifact-body">
         {!compact && <p className="artifact-desc">{asset.text}</p>}
@@ -961,7 +1051,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     }
 
     if (sourcePreview.kind === 'pdf') {
-      return <iframe className="source-frame" title={selectedSourceFile.name} src={sourcePreview.url} />;
+      return <iframe className="source-frame" key={sourcePreview.fileKey || sourcePreview.url} title={selectedSourceFile.name} src={sourcePreview.url} />;
     }
 
     if (sourcePreview.kind === 'image') {

@@ -305,11 +305,25 @@ export const VisualArtifact = styled.div`
       font-weight: 850;
     }
 
-    span {
+    .artifact-meta {
       flex: 0 0 auto;
+      display: grid;
+      justify-items: end;
+      gap: 3px;
+      min-width: fit-content;
+    }
+
+    span {
       color: #0ea5a4;
       font-size: 11px;
       font-weight: 850;
+    }
+
+    time {
+      color: #64748b;
+      font-size: 10.5px;
+      font-weight: 800;
+      white-space: nowrap;
     }
   }
 

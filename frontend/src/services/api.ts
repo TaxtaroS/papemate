@@ -110,6 +110,15 @@ export const authAPI = {
 };
 
 export const analysisAPI = {
+  previewDocument: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file, file.name || 'document');
+
+    return apiClient.post('/api/analysis/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      responseType: 'blob',
+    });
+  },
   chat: (question: string, files: File[], options: AnalysisChatOptions = {}, analysisText = '') => {
     const formData = new FormData();
     formData.append('question', question);

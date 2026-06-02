@@ -1,0 +1,7 @@
+services:
+  backend:
+    environment:
+      ENABLE_BERT_GROUNDING: "false"
+      ENABLE_TOPIC_MODELING: "false"
+      TOPIC_MODEL_BACKEND: "keywords"
+      TOKENIZERS_PARALLELISM: "false"

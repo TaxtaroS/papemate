@@ -382,15 +382,36 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
     padding: 16px 18px;
   }
 
+  .asset-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
   .project-label {
     color: #0ea5a4;
     font-size: 12px;
     font-weight: 800;
-    margin-bottom: 8px;
+    line-height: 1.35;
   }
 
   .project-label.support {
     color: #64748b;
+  }
+
+  .asset-timestamp {
+    flex: 0 0 auto;
+    border: 1px solid #dbe7f0;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #64748b;
+    padding: 4px 9px;
+    font-size: 11px;
+    font-weight: 850;
+    line-height: 1.2;
+    white-space: nowrap;
   }
 
   h4 {
@@ -404,7 +425,7 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
     color: #94a3b8;
     font-size: 11.5px;
     font-weight: 700;
-    margin-bottom: 10px;
+    margin-top: 10px;
   }
 
   .body {
@@ -688,6 +709,15 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
       padding: 14px;
     }
 
+    .asset-head {
+      display: grid;
+      gap: 6px;
+    }
+
+    .asset-timestamp {
+      width: fit-content;
+    }
+
     h4 {
       font-size: 14px;
       line-height: 1.4;
@@ -831,9 +861,37 @@ export const RightCoopPanel = styled.aside<{ $error?: boolean }>`
     cursor: pointer;
   }
 
+  .new-share-page-btn {
+    width: calc(100% - 64px);
+    max-width: 276px;
+    margin: 18px auto 10px auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid #0f766e;
+    border-radius: 8px;
+    background: #0f766e;
+    color: #ffffff;
+    padding: 12px 10px;
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 10px 20px rgba(15, 118, 110, 0.16);
+  }
+
+  .new-share-page-btn:hover {
+    background: #115e59;
+    border-color: #115e59;
+  }
+
+  .new-share-page-btn i {
+    font-size: 12px;
+  }
+
   .invite-help {
     width: calc(100% - 64px);
-    margin: 18px auto 8px auto;
+    margin: 0 auto 8px auto;
     color: #92400e;
     font-size: 11.5px;
     font-weight: 800;

@@ -33,6 +33,10 @@ EXTRACTION_NOISE_PATTERN = re.compile(r"[\u0100-\u024f\u3400-\u4dbf\u4e00-\u9fff
 IMAGE_META_PATTERNS = (
     re.compile(r"원본\s*그림의\s*이름\s*:\s*CLP[^\s]+", re.IGNORECASE),
     re.compile(r"원본\s*그림의\s*크기\s*:\s*가로\s*\d+\s*pixel\s*,?\s*세로\s*\d+\s*pixel", re.IGNORECASE),
+    re.compile(r"그림\s*입니다\.?", re.IGNORECASE),
+    re.compile(r"이미지\s*입니다\.?", re.IGNORECASE),
+    re.compile(r"binaryitemid\s*[:=]\s*[^\s]+", re.IGNORECASE),
+    re.compile(r"href\s*[:=]\s*[^\s]+", re.IGNORECASE),
 )
 FORMULA_NOISE_PATTERN = re.compile(
     r"\{[^{}]{0,100}(?:TIMES|over)[^{}]{0,220}\}|(?:TIMES|over)\s*`?\s*1,?0{2,}",
@@ -810,6 +814,134 @@ def _extractive_summary(text: str, question: str = "", limit: int = 4) -> list[s
 # --- HWPX / HWP 파싱 보조 함수들 (PoC) -----------------------------
 # 이 영역은 HWPX와 HWP 문서에서 텍스트/이미지를 추출하는 전용 파서 로직입니다.
 # HWPX는 Zip+XML 기반 포맷이고, HWP는 구형 한글 바이너리 포맷이므로 각각 다른 접근을 사용합니다.
+def _local_name(tag: str) -> str:
+    return str(tag or "").split("}", 1)[-1].split(":", 1)[-1].lower()
+
+
+def _is_hwpx_body_xml(name: str) -> bool:
+    lower = name.lower().replace("\\", "/")
+    if not lower.endswith(".xml"):
+        return False
+    if lower.startswith(("settings/", "meta-inf/", "preview/", "docinfo")):
+        return False
+    return (
+        "/section" in lower
+        or lower.startswith("contents/section")
+        or lower.startswith("contents/body")
+        or lower.startswith("bodytext/")
+    )
+
+
+def _clean_hwpx_block(text: str) -> str:
+    cleaned = _clean_text(text)
+    cleaned = re.sub(r"\b(?:charpridref|parapridref|styleidref|borderfillidref)\b\s*\d*", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(?:instid|zorder|numberingtype|textwrap|lock)\b\s*[:=]?\s*[A-Za-z0-9_-]+", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _node_text(node) -> str:
+    return _clean_hwpx_block(" ".join(part for part in node.itertext() if part and part.strip()))
+
+
+def _paragraph_text(node) -> str:
+    parts: list[str] = []
+    for child in node.iter():
+        name = _local_name(child.tag)
+        if name in {"t", "text"} and child.text:
+            parts.append(child.text)
+        elif name in {"linebreak", "br"}:
+            parts.append("\n")
+        elif name in {"tab"}:
+            parts.append("\t")
+        elif name in {"pic", "image", "drawing", "ole"}:
+            parts.append(" [그림] ")
+    text = "".join(parts).strip()
+    return _clean_hwpx_block(text or _node_text(node))
+
+
+def _table_rows(node) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for row in node.iter():
+        if _local_name(row.tag) not in {"tr", "row"}:
+            continue
+        cells: list[str] = []
+        for cell in row:
+            if _local_name(cell.tag) not in {"tc", "cell"}:
+                continue
+            cell_text = _node_text(cell)
+            if cell_text:
+                cells.append(cell_text)
+        if cells:
+            rows.append(cells)
+    return rows
+
+
+def _format_table(rows: list[list[str]], table_index: int) -> str:
+    if not rows:
+        return ""
+    lines = [f"[표 {table_index}]"]
+    for row in rows[:80]:
+        lines.append(" | ".join(cell for cell in row if cell))
+    return "\n".join(lines)
+
+
+def _is_inside(node, ancestor_names: set[str], parent_map: dict) -> bool:
+    parent = parent_map.get(node)
+    while parent is not None:
+        if _local_name(parent.tag) in ancestor_names:
+            return True
+        parent = parent_map.get(parent)
+    return False
+
+
+def _parse_hwpx_body_xml(raw: bytes) -> list[str]:
+    try:
+        root = ElementTree.fromstring(raw)
+    except Exception:
+        return []
+
+    parent_map = {child: parent for parent in root.iter() for child in parent}
+    blocks: list[str] = []
+    table_index = 1
+
+    for node in root.iter():
+        name = _local_name(node.tag)
+        if name in {"tbl", "table"}:
+            table_text = _format_table(_table_rows(node), table_index)
+            if table_text:
+                blocks.append(table_text)
+                table_index += 1
+            continue
+
+        if name in {"pic", "image", "drawing", "ole"} and not _is_inside(node, {"p", "para", "tbl", "table"}, parent_map):
+            blocks.append("[그림]")
+            continue
+
+        if name not in {"p", "para"}:
+            continue
+        if _is_inside(node, {"tbl", "table"}, parent_map):
+            continue
+        paragraph = _paragraph_text(node)
+        if paragraph and paragraph != "[그림]":
+            blocks.append(paragraph)
+        elif paragraph == "[그림]":
+            blocks.append("[그림]")
+
+    cleaned_blocks: list[str] = []
+    seen = set()
+    for block in blocks:
+        block = block.strip()
+        compact = re.sub(r"\s+", "", block)
+        if not block or compact in seen:
+            continue
+        if len(compact) <= 1:
+            continue
+        seen.add(compact)
+        cleaned_blocks.append(block)
+    return cleaned_blocks
+
+
 def _parse_hwpx_bytes(data: bytes) -> tuple[str, list[dict]]:
     """HWPX(Zip+XML) 포맷을 안전하게 파싱합니다.
 
@@ -817,24 +949,16 @@ def _parse_hwpx_bytes(data: bytes) -> tuple[str, list[dict]]:
     - text: 문서에서 추출한 텍스트(간단 정리)
     - images: [{'name': str, 'bytes': bytes}] 형태의 추출된 이미지들
     """
-    texts = []
+    blocks = []
     images = []
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             for name in z.namelist():
                 lname = name.lower()
-                # XML 파일에서 텍스트 수집
-                if lname.endswith('.xml'):
+                # 본문 XML만 문단/표/그림 단위로 수집합니다.
+                if _is_hwpx_body_xml(name):
                     try:
-                        raw = z.read(name)
-                        try:
-                            root = ElementTree.fromstring(raw)
-                        except Exception:
-                            # 일부 XML은 네임스페이스/깨진 문자 때문에 파싱이 실패할 수 있습니다.
-                            # 태그 원문을 그대로 넣으면 분석 품질이 떨어지므로 이 파일은 건너뜁니다.
-                            continue
-                        # 모든 텍스트 노드 합치기
-                        texts.append(' '.join(t for t in root.itertext() if t and t.strip()))
+                        blocks.extend(_parse_hwpx_body_xml(z.read(name)))
                     except KeyError:
                         continue
 
@@ -848,7 +972,26 @@ def _parse_hwpx_bytes(data: bytes) -> tuple[str, list[dict]]:
     except zipfile.BadZipFile:
         return "", []
 
-    combined = '\n'.join(_clean_text(t) for t in texts if t)
+    if not blocks:
+        # 일부 HWPX 변형은 본문 경로가 다를 수 있어, 마지막 fallback으로 XML 텍스트를 읽되
+        # settings/docInfo/metadata 계열은 제외합니다.
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                for name in z.namelist():
+                    lname = name.lower().replace("\\", "/")
+                    if not lname.endswith(".xml") or lname.startswith(("settings/", "meta-inf/", "docinfo")):
+                        continue
+                    try:
+                        root = ElementTree.fromstring(z.read(name))
+                    except Exception:
+                        continue
+                    text = _node_text(root)
+                    if text:
+                        blocks.append(text)
+        except zipfile.BadZipFile:
+            return "", images
+
+    combined = '\n\n'.join(block for block in blocks if block)
     return combined, images
 
 
@@ -1233,11 +1376,14 @@ def extract_file_document(filename: str, content: bytes) -> dict:
         return _document_from_units(filename, "PDF", extract_pdf_units(content))
     if extension == ".hwpx":
         parsed = parse_document(content, filename)
+        raw_text = parsed.get("text", "")
         text = _parsed_text_or_message(
             parsed,
             "HWPX/OWPML 내부에서 추출 가능한 본문 텍스트를 찾지 못했습니다.",
         )
-        return _document_from_units(filename, "HWPX/OWPML", [{"section_index": 1, "text": text}])
+        document = _document_from_units(filename, "HWPX/OWPML", [{"section_index": 1, "text": text}])
+        document["preview_text"] = raw_text or text
+        return document
     if extension == ".docx":
         return _document_from_units(filename, "DOCX", [{"section_index": 1, "text": extract_docx(content)}])
     if extension in TEXT_EXTENSIONS:
@@ -1246,10 +1392,13 @@ def extract_file_document(filename: str, content: bytes) -> dict:
         return _document_from_units(filename, "IMAGE", [{"section_index": 1, "text": inspect_image(content)}])
     if extension == ".hwp":
         parsed = parse_document(content, filename)
+        raw_text = parsed.get("text", "")
         text = _parsed_text_or_message(parsed, "")
         if not text:
             text = extract_hwp(content)
-        return _document_from_units(filename, "HWP", [{"section_index": 1, "text": text}])
+        document = _document_from_units(filename, "HWP", [{"section_index": 1, "text": text}])
+        document["preview_text"] = raw_text or text
+        return document
     return _document_from_units(filename, "UNKNOWN", [{"section_index": 1, "text": "지원하지 않는 파일 형식입니다."}])
 
 
