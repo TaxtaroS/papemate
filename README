@@ -15,7 +15,7 @@ PDF, HWPX, DOCX, 이미지, TXT 문서를 업로드해 분석하고 프로젝트
 - 문서 미리보기에 hwp/hwpx 를 좀더 정확한 파서를 할수있도록 gpt키가 있을시는 gpt 를 활용할수 있도록 파이프 라인을 연결 하였습니다.
 - 분석창에 리로드 버튼을 생성 하였습니다.
 - PDF 원본 파일을 그냥 File 객체 그대로 저장하지 않고, 
-  IndexedDB에 blob + 파일명 + 타입 + 수정일 형태로 저장한 뒤 다시 File로 재생성하게 바꿨습니다
+  IndexedDB에 blob(Binary Large Object) + 파일명 + 타입 + 수정일 형태로 저장한 뒤 다시 File로 재생성하게 바꿨습니다.
 - PDF/HWP/HWPX/이미지/텍스트 미리보기를 파일별 key로 따로 캐시
 - PDF Blob URL을 탭 전환 때 바로 폐기하지 않고 파일별로 유지
 - HWP/HWPX 변환 결과도 해당 파일의 캐시에만 저장
