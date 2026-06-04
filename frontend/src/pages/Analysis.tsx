@@ -685,10 +685,10 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     const isConvertibleDocument = ['hwp', 'hwpx'].includes(extension);
 
     if (isPdf || isImage) {
-      const url = sourceObjectUrlsRef.current[fileKey] || URL.createObjectURL(selectedSourceFile);
-      sourceObjectUrlsRef.current[fileKey] = url;
-      if (isCurrentPreviewWork()) cacheSourcePreview(fileKey, { kind: isPdf ? 'pdf' : 'image', url, text: '', message: '', fileKey });
-      return undefined;
+      const url = URL.createObjectURL(selectedSourceFile);
+      setSourcePreview({ kind: isPdf ? 'pdf' : 'image', url, text: '', message: '', fileKey: getFileKey(selectedSourceFile) });
+      return () => URL.revokeObjectURL(url);
+ kim_v3
     }
 
     if (isText) {
@@ -739,7 +739,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       };
     }
 
-    if (isCurrentPreviewWork()) cacheSourcePreview(fileKey, {
+    setSourcePreview({
+ kim_v3
       kind: 'meta',
       url: '',
       text: '',
@@ -788,11 +789,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       thread: toStoredThread(messages),
     });
     setSelectedSourceKey(getFileKey(selectedFiles[0]));
-    if (pendingVisualType) {
-      handleCreateVisualFromFiles(pendingVisualType, selectedFiles, nextActiveFiles);
-      return;
-    }
-    setPromptText('분석해 드릴까요?');
+    event.target.value = '';
+ kim_v3
     window.setTimeout(() => promptInputRef.current?.focus(), 0);
   };
 
