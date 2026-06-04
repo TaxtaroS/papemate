@@ -5,6 +5,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { FiBarChart2, FiGrid, FiImage, FiPaperclip, FiRefreshCcw } from 'react-icons/fi';
 import {
   AiRow,
   BottomPromptInput,
@@ -73,6 +74,113 @@ const mergeUniqueFiles = (...fileGroups) => {
 const isUploadableFile = (file) =>
   (typeof File !== 'undefined' && file instanceof File) ||
   (typeof Blob !== 'undefined' && file instanceof Blob);
+
+const SOURCE_FILE_DB = 'papermate-source-files';
+const SOURCE_FILE_STORE = 'sourceFiles';
+const ACTIVE_ANALYSIS_SESSION_KEY = 'papermate.activeAnalysisSession.v1';
+
+const getActiveAnalysisSessionKey = () => {
+  try {
+    return `${ACTIVE_ANALYSIS_SESSION_KEY}.${localStorage.getItem('userId') || localStorage.getItem('username') || 'guest'}`;
+  } catch {
+    return `${ACTIVE_ANALYSIS_SESSION_KEY}.guest`;
+  }
+};
+
+const compactIds = (ids: any[] = []) =>
+  ids.map((id) => String(id || '').trim()).filter(Boolean).filter((id, index, arr) => arr.indexOf(id) === index);
+
+const openSourceFileDb = () =>
+  new Promise<IDBDatabase | null>((resolve) => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      resolve(null);
+      return;
+    }
+
+    const request = window.indexedDB.open(SOURCE_FILE_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(SOURCE_FILE_STORE)) {
+        db.createObjectStore(SOURCE_FILE_STORE, { keyPath: 'ownerId' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => resolve(null);
+  });
+
+const loadSourceFiles = async (ownerIds: string[] = []) => {
+  const uniqueOwnerIds = ownerIds.filter(Boolean).filter((id, index, arr) => arr.indexOf(id) === index);
+  if (uniqueOwnerIds.length === 0) return [];
+
+  const db = await openSourceFileDb();
+  if (!db) return [];
+
+  return new Promise<any[]>((resolve) => {
+    const transaction = db.transaction(SOURCE_FILE_STORE, 'readonly');
+    const store = transaction.objectStore(SOURCE_FILE_STORE);
+    const loadedFiles: any[] = [];
+    let pending = uniqueOwnerIds.length;
+
+    const finish = () => {
+      pending -= 1;
+      if (pending === 0) resolve(mergeUniqueFiles(loadedFiles));
+    };
+
+    uniqueOwnerIds.forEach((ownerId) => {
+      const request = store.get(ownerId);
+      request.onsuccess = () => {
+        const files = Array.isArray(request.result?.files) ? request.result.files.map(hydrateStoredSourceFile) : [];
+        loadedFiles.push(...files);
+        finish();
+      };
+      request.onerror = finish;
+    });
+  });
+};
+
+const saveSourceFiles = async (ownerIds: string[] = [], files: any[] = []) => {
+  const uploadableFiles = files.filter(isUploadableFile);
+  const uniqueOwnerIds = ownerIds.filter(Boolean).filter((id, index, arr) => arr.indexOf(id) === index);
+  if (uniqueOwnerIds.length === 0 || uploadableFiles.length === 0) return;
+
+  const db = await openSourceFileDb();
+  if (!db) return;
+
+  uniqueOwnerIds.forEach((ownerId) => {
+    const transaction = db.transaction(SOURCE_FILE_STORE, 'readwrite');
+    transaction.objectStore(SOURCE_FILE_STORE).put({
+      ownerId,
+      files: uploadableFiles.map(toStoredSourceFile),
+      updatedAt: nowIso(),
+    });
+  });
+};
+
+const toStoredSourceFile = (file) => ({
+  name: file.name || 'document',
+  size: file.size,
+  type: file.type || '',
+  lastModified: file.lastModified || Date.now(),
+  blob: file,
+});
+
+const hydrateStoredSourceFile = (record) => {
+  if (typeof File !== 'undefined' && record instanceof File) return record;
+  if (record?.blob instanceof Blob) {
+    try {
+      return new File([record.blob], record.name || 'document', {
+        type: record.type || record.blob.type || '',
+        lastModified: record.lastModified || Date.now(),
+      });
+    } catch {
+      const blob = record.blob;
+      blob.name = record.name || 'document';
+      blob.lastModified = record.lastModified || Date.now();
+      return blob;
+    }
+  }
+  return record;
+};
 
 const toStoredFiles = (files) =>
   files.map((file) => ({
@@ -339,16 +447,21 @@ interface AnalysisProps {
   projectId?: any;
   projectTitle?: any;
   restoredData?: any;
+  newAnalysisSignal?: number;
   clearRestore?: () => void;
   onConversationChange?: (conversationId: any) => void;
   onLoginRequired?: () => void;
 }
 
-function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConversationChange, onLoginRequired }: AnalysisProps) {
+function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, clearRestore, onConversationChange, onLoginRequired }: AnalysisProps) {
   const fileInputRef = useRef(null);
+  const pendingVisualTypeRef = useRef<'image' | 'graph' | 'table' | null>(null);
   const promptInputRef = useRef(null);
   const scrollRef = useRef(null);
   const compareShellRef = useRef(null);
+  const clipMenuRef = useRef(null);
+  const sourceObjectUrlsRef = useRef<Record<string, string>>({});
+  const sourceResetVersionRef = useRef(0);
   const recentConversationIdRef = useRef(
     restoredData?.conversationId || restoredData?.projectId || projectId || `conversation-${Date.now()}`
   );
@@ -370,12 +483,28 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
   const [selectedVisual, setSelectedVisual] = useState(null);
   const [selectedSourceKey, setSelectedSourceKey] = useState('');
   const [sourcePreview, setSourcePreview] = useState({ kind: 'empty', url: '', text: '', message: '' });
+  const [sourcePreviewCache, setSourcePreviewCache] = useState<Record<string, any>>({});
   const [sourcePaneWidth, setSourcePaneWidth] = useState(58);
   const [isResizingSource, setIsResizingSource] = useState(false);
+  const [isClipMenuOpen, setIsClipMenuOpen] = useState(false);
 
   const currentInviteCode = currentProject?.inviteCode || restoredData?.inviteCode || '저장 후 생성';
   const sourceFiles = activeFiles;
   const selectedSourceFile = sourceFiles.find((file) => getFileKey(file) === selectedSourceKey) || sourceFiles[0];
+
+  const cacheSourcePreview = (fileKey: string, preview: any) => {
+    setSourcePreviewCache((prev) => ({ ...prev, [fileKey]: preview }));
+    if (fileKey === selectedSourceKey || !selectedSourceKey) {
+      setSourcePreview(preview);
+    }
+  };
+
+  const revokeSourceObjectUrl = (fileKey: string) => {
+    const url = sourceObjectUrlsRef.current[fileKey];
+    if (!url) return;
+    URL.revokeObjectURL(url);
+    delete sourceObjectUrlsRef.current[fileKey];
+  };
 
   const requireLoginForSave = () => {
     if (localStorage.getItem('accessToken')) return false;
@@ -384,36 +513,94 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     return true;
   };
 
-  useEffect(() => {
-    if (!restoredData) return;
-    if (restoredData.conversationId || restoredData.projectId || restoredData.id) {
-      recentConversationIdRef.current = restoredData.conversationId || restoredData.projectId || restoredData.id;
+  const restoreAnalysisSession = (sessionData) => {
+    if (!sessionData) return false;
+    if (sessionData.conversationId || sessionData.projectId || sessionData.id) {
+      recentConversationIdRef.current = sessionData.conversationId || sessionData.projectId || sessionData.id;
     }
-    const restoredFiles = Array.isArray(restoredData.files) ? restoredData.files : [];
-    const restoredThread = Array.isArray(restoredData.thread) && restoredData.thread.length > 0
-      ? restoredData.thread
+
+    const restoredFiles = Array.isArray(sessionData.files) ? sessionData.files : [];
+    const restoredThread = Array.isArray(sessionData.thread) && sessionData.thread.length > 0
+      ? sessionData.thread
       : [
-          restoredData.q && { id: 'restored-q', role: 'user', text: restoredData.q },
-          restoredData.a && { id: 'restored-a', role: 'ai', text: restoredData.a },
+          sessionData.q && { id: 'restored-q', role: 'user', text: sessionData.q },
+          sessionData.a && { id: 'restored-a', role: 'ai', text: sessionData.a },
         ].filter(Boolean);
     const normalizedThread = normalizeRestoredThread(restoredThread);
 
-    setFiles([]);
-    setActiveFiles([]);
+    setFiles(restoredFiles);
+    setActiveFiles(restoredFiles);
+    const restoreVersion = sourceResetVersionRef.current;
+    loadSourceFiles(compactIds([
+      sessionData.projectId,
+      sessionData.conversationId,
+      sessionData.id,
+      effectiveProjectId,
+      savedProjectId,
+      projectId,
+      restoredData?.projectId,
+      restoredData?.conversationId,
+      restoredData?.id,
+      recentConversationIdRef.current,
+    ])).then((restoredSourceFiles) => {
+      if (restoreVersion !== sourceResetVersionRef.current) return;
+      if (restoredSourceFiles.length > 0) {
+        const restoredKeys = new Set(restoredSourceFiles.map((file) => getFileKey(file)));
+        setSourcePreviewCache((prev) => {
+          const next = { ...prev };
+          restoredKeys.forEach((key) => delete next[key]);
+          return next;
+        });
+        setFiles(restoredSourceFiles);
+        setActiveFiles(restoredSourceFiles);
+        setSelectedSourceKey(getFileKey(restoredSourceFiles[0]));
+      }
+    });
     if (normalizedThread.length > 0) setMessages(normalizedThread);
-    setCurrentProject(restoredData);
-    
-    // 이전에 임시 생성되었던 시각화 자료들을 대화 기록에서 추출하여 좌측 '생성된 자료' 패널에 복구
+    setCurrentProject(sessionData);
+
     const restoredGeneratedVisuals = normalizedThread.filter((msg: any) => msg.role === 'asset' && isVisualStorageItem(msg));
     setGeneratedVisuals(dedupeVisuals(restoredGeneratedVisuals));
-    
+
     const threadVisualIds = new Set(restoredGeneratedVisuals.map((visual: any) => normalizeVisualId(visual.id)));
-    setVisuals(dedupeVisuals((restoredData.visuals || []).filter((visual: any) => isVisualStorageItem(visual) && !threadVisualIds.has(normalizeVisualId(visual.id)))));
+    setVisuals(dedupeVisuals((sessionData.visuals || []).filter((visual: any) => isVisualStorageItem(visual) && !threadVisualIds.has(normalizeVisualId(visual.id)))));
+    return normalizedThread.length > 0 || restoredFiles.length > 0;
+  };
+
+  useEffect(() => {
+    if (restoredData) return;
+    const navigationEntry = performance.getEntriesByType?.('navigation')?.[0] as PerformanceNavigationTiming | undefined;
+    const isPageReload = navigationEntry?.type === 'reload';
+    if (!isPageReload && sessionStorage.getItem('papermate.skipActiveAnalysisRestore') === '1') {
+      sessionStorage.removeItem('papermate.skipActiveAnalysisRestore');
+      return;
+    }
+    sessionStorage.removeItem('papermate.skipActiveAnalysisRestore');
+    restoreAnalysisSession(readJson(getActiveAnalysisSessionKey(), null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!restoredData) return;
+    restoreAnalysisSession(restoredData);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restoredData]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (!isClipMenuOpen) return undefined;
+
+    const handleOutsideClick = (event) => {
+      if (clipMenuRef.current?.contains?.(event.target)) return;
+      setIsClipMenuOpen(false);
+    };
+
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [isClipMenuOpen]);
 
   useEffect(() => {
     if (!isResizingSource) return undefined;
@@ -444,6 +631,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
   useEffect(() => {
     if (sourceFiles.length === 0) {
       setSelectedSourceKey('');
+      setSourcePreview({ kind: 'empty', url: '', text: '', message: '' });
+      setSourcePreviewCache({});
       return;
     }
 
@@ -452,14 +641,33 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     }
   }, [sourceFiles, selectedSourceKey]);
 
+  useEffect(() => () => {
+    Object.values(sourceObjectUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    sourceObjectUrlsRef.current = {};
+  }, []);
+
   useEffect(() => {
     if (!selectedSourceFile) {
       setSourcePreview({ kind: 'empty', url: '', text: '', message: '' });
       return undefined;
     }
 
+    const previewVersion = sourceResetVersionRef.current;
+    const isCurrentPreviewWork = () => previewVersion === sourceResetVersionRef.current;
+    const fileKey = getFileKey(selectedSourceFile);
+    const cachedPreview = sourcePreviewCache[fileKey];
+    const canHydratePreview = typeof selectedSourceFile.text === 'function';
+    const isStaleStoredMeta =
+      canHydratePreview &&
+      cachedPreview?.kind === 'meta' &&
+      String(cachedPreview.message || '').includes('저장된 기록');
+    if (cachedPreview && !isStaleStoredMeta) {
+      if (isCurrentPreviewWork()) setSourcePreview(cachedPreview);
+      return undefined;
+    }
+
     if (typeof selectedSourceFile.text !== 'function') {
-      setSourcePreview({
+      if (isCurrentPreviewWork()) cacheSourcePreview(fileKey, {
         kind: 'meta',
         url: '',
         text: '',
@@ -477,20 +685,21 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     const isConvertibleDocument = ['hwp', 'hwpx'].includes(extension);
 
     if (isPdf || isImage) {
-      const url = URL.createObjectURL(selectedSourceFile);
-      setSourcePreview({ kind: isPdf ? 'pdf' : 'image', url, text: '', message: '', fileKey: getFileKey(selectedSourceFile) });
-      return () => URL.revokeObjectURL(url);
+      const url = sourceObjectUrlsRef.current[fileKey] || URL.createObjectURL(selectedSourceFile);
+      sourceObjectUrlsRef.current[fileKey] = url;
+      if (isCurrentPreviewWork()) cacheSourcePreview(fileKey, { kind: isPdf ? 'pdf' : 'image', url, text: '', message: '', fileKey });
+      return undefined;
     }
 
     if (isText) {
       let cancelled = false;
       selectedSourceFile.text()
         .then((text) => {
-          if (!cancelled) setSourcePreview({ kind: 'text', url: '', text: text.slice(0, 20000), message: '' });
+          if (!cancelled && isCurrentPreviewWork()) cacheSourcePreview(fileKey, { kind: 'text', url: '', text: text.slice(0, 20000), message: '', fileKey });
         })
         .catch(() => {
-          if (!cancelled) {
-            setSourcePreview({ kind: 'meta', url: '', text: '', message: '원본 텍스트를 읽지 못했습니다.' });
+          if (!cancelled && isCurrentPreviewWork()) {
+            cacheSourcePreview(fileKey, { kind: 'meta', url: '', text: '', message: '원본 텍스트를 읽지 못했습니다.', fileKey });
           }
         });
       return () => {
@@ -500,43 +709,48 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
 
     if (isConvertibleDocument) {
       let cancelled = false;
-      let previewUrl = '';
-      setSourcePreview({
+      if (isCurrentPreviewWork()) cacheSourcePreview(fileKey, {
         kind: 'loading',
         url: '',
         text: '',
         message: 'HWP/HWPX 문서를 파싱해 PDF 원본 미리보기를 준비하는 중입니다.',
+        fileKey,
       });
 
       analysisAPI.previewDocument(selectedSourceFile)
         .then((response) => {
-          if (cancelled) return;
+          if (cancelled || !isCurrentPreviewWork()) return;
           const pdfBlob = response.data instanceof Blob
             ? response.data
             : new Blob([response.data], { type: 'application/pdf' });
-          previewUrl = URL.createObjectURL(pdfBlob);
-          setSourcePreview({ kind: 'pdf', url: previewUrl, text: '', message: '', fileKey: getFileKey(selectedSourceFile) });
+          revokeSourceObjectUrl(fileKey);
+          const previewUrl = URL.createObjectURL(pdfBlob);
+          sourceObjectUrlsRef.current[fileKey] = previewUrl;
+          cacheSourcePreview(fileKey, { kind: 'pdf', url: previewUrl, text: '', message: '', fileKey });
         })
         .catch((error) => {
-          if (cancelled) return;
+          if (cancelled || !isCurrentPreviewWork()) return;
           const message = error.response?.data?.detail || error.userMessage || '문서를 PDF 미리보기로 변환하지 못했습니다.';
-          setSourcePreview({ kind: 'meta', url: '', text: '', message });
+          cacheSourcePreview(fileKey, { kind: 'meta', url: '', text: '', message, fileKey });
         });
 
       return () => {
         cancelled = true;
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
       };
     }
 
-    setSourcePreview({
+    if (isCurrentPreviewWork()) cacheSourcePreview(fileKey, {
       kind: 'meta',
       url: '',
       text: '',
       message: '이 형식은 브라우저 안에서 바로 미리보기 어렵습니다. 분석 결과의 근거 구간과 시각화를 나란히 확인해주세요.',
+      fileKey,
     });
     return undefined;
-  }, [selectedSourceFile]);
+    // sourcePreviewCache is intentionally omitted. Cache writes must not cancel
+    // an in-flight HWP/HWPX preview conversion.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSourceFile, selectedSourceKey]);
 
   const copyInviteCode = async () => {
     if (requireLoginForSave()) return;
@@ -550,25 +764,128 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
 
   const handleFileChange = (event) => {
     const selectedFiles = Array.from(event.target.files || []);
+    const pendingVisualType = pendingVisualTypeRef.current;
+    pendingVisualTypeRef.current = null;
+    event.target.value = '';
     if (selectedFiles.length === 0) return;
 
     const nextFiles = mergeUniqueFiles(files, selectedFiles);
     const nextActiveFiles = mergeUniqueFiles(activeFiles, selectedFiles);
     setFiles(nextFiles);
     setActiveFiles(nextActiveFiles);
+    saveSourceFiles([recentConversationIdRef.current, effectiveProjectId], nextActiveFiles);
+    writeJson(getActiveAnalysisSessionKey(), {
+      id: recentConversationIdRef.current,
+      conversationId: recentConversationIdRef.current,
+      projectId: effectiveProjectId || null,
+      title: currentProject?.title || projectTitle || restoredData?.projectTitle || '새 분석 대화',
+      projectTitle: currentProject?.title || projectTitle || restoredData?.projectTitle,
+      question: '',
+      date: formatDate(),
+      updatedAt: nowIso(),
+      inviteCode: currentProject?.inviteCode || restoredData?.inviteCode,
+      files: toStoredFiles(nextActiveFiles),
+      thread: toStoredThread(messages),
+    });
     setSelectedSourceKey(getFileKey(selectedFiles[0]));
-    event.target.value = '';
+    if (pendingVisualType) {
+      handleCreateVisualFromFiles(pendingVisualType, selectedFiles, nextActiveFiles);
+      return;
+    }
+    setPromptText('분석해 드릴까요?');
     window.setTimeout(() => promptInputRef.current?.focus(), 0);
   };
 
   const handleRemoveFile = (file) => {
+    const removedFileKey = getFileKey(file);
     const nextFiles = files.filter((item) => getFileKey(item) !== getFileKey(file));
     const nextActiveFiles = activeFiles.filter((item) => getFileKey(item) !== getFileKey(file));
     setFiles(nextFiles);
     setActiveFiles(nextActiveFiles);
-    if (selectedSourceKey === getFileKey(file)) {
+    revokeSourceObjectUrl(removedFileKey);
+    setSourcePreviewCache((prev) => {
+      const next = { ...prev };
+      delete next[removedFileKey];
+      return next;
+    });
+    if (selectedSourceKey === removedFileKey) {
       setSelectedSourceKey(nextActiveFiles[0] ? getFileKey(nextActiveFiles[0]) : '');
     }
+  };
+
+  const handleClipFileAdd = () => {
+    setIsClipMenuOpen(false);
+    fileInputRef.current?.click();
+  };
+
+  const handleCreateVisualFromFiles = async (
+    visualType: 'image' | 'graph' | 'table',
+    selectedFiles: any[] = [],
+    nextActiveFiles = activeFiles
+  ) => {
+    if (isAnalyzing) return;
+
+    const labelMap = {
+      image: '이미지',
+      graph: '그래프',
+      table: '표',
+    };
+    const requestFiles = selectedFiles.filter(isUploadableFile);
+    const analysisText = getLatestAnalysisText(messages);
+    const label = labelMap[visualType];
+    const requestMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      text: `${label} 만들어줘`,
+      createdAt: nowIso(),
+    };
+    const messagesWithRequest = [...messages, requestMessage];
+
+    setMessages(messagesWithRequest);
+    setIsAnalyzing(true);
+
+    try {
+      const response = await analysisAPI.createVisual(visualType, requestFiles, analysisText);
+      const visual = response.data?.visual || response.data;
+      const visualAsset = {
+        ...visual,
+        id: visual?.id || `visual-${Date.now()}`,
+        role: 'asset',
+        kind: visual?.kind || visualType,
+        type: visual?.type || visualType,
+        title: visual?.title || `${label} 자료`,
+        text: visual?.text || visual?.desc || `${label} 자료를 생성했습니다.`,
+        saved: false,
+        createdAt: nowIso(),
+      };
+      const nextMessages = [...messagesWithRequest, visualAsset];
+      setMessages(nextMessages);
+      setGeneratedVisuals((prev) => [visualAsset, ...prev].slice(0, MAX_VISUALS));
+      upsertRecentConversation(nextMessages, requestMessage.text, nextActiveFiles);
+    } catch (error) {
+      const serverMessage = error.response?.data?.detail || error.userMessage || error.message || `${label} 생성에 실패했습니다.`;
+      const nextMessages = [
+        ...messagesWithRequest,
+        {
+          id: `ai-${Date.now()}`,
+          role: 'ai',
+          text: `${label} 생성 실패: ${serverMessage}`,
+          createdAt: nowIso(),
+        },
+      ];
+      setMessages(nextMessages);
+      upsertRecentConversation(nextMessages, requestMessage.text, nextActiveFiles);
+    } finally {
+      setIsAnalyzing(false);
+      window.setTimeout(() => promptInputRef.current?.focus(), 0);
+    }
+  };
+
+  const handleCreateVisualFromMenu = (visualType: 'image' | 'graph' | 'table') => {
+    if (isAnalyzing) return;
+    pendingVisualTypeRef.current = visualType;
+    setIsClipMenuOpen(false);
+    fileInputRef.current?.click();
   };
 
   const handlePromptEnter = (event) => {
@@ -622,6 +939,20 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
           )
         : []),
     ].slice(0, MAX_RECENT_CONVERSATIONS));
+
+    writeJson(getActiveAnalysisSessionKey(), {
+      id: conversationId,
+      conversationId,
+      projectId: effectiveProjectId || null,
+      title,
+      projectTitle: title,
+      question,
+      date: formatDate(),
+      updatedAt: nowIso(),
+      inviteCode: currentProject?.inviteCode || restoredData?.inviteCode,
+      files: toStoredFiles(nextFiles),
+      thread: storedThread,
+    });
 
     const currentId = effectiveProjectId || currentProject?.id || restoredData?.projectId;
     const currentInviteCode = currentProject?.inviteCode || restoredData?.inviteCode;
@@ -681,7 +1012,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     if (hasNewUpload) {
       setActiveFiles(pendingFiles);
       setSelectedSourceKey(getFileKey(pendingFiles[0]));
-      setSourcePreview({ kind: 'loading', url: '', text: '', message: '원본 파일을 미리보기 영역에 올리는 중입니다.' });
       setFiles([]);
     }
 
@@ -697,6 +1027,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
       recentConversationIdRef.current = `conv-${Date.now()}`;
     }
 
+    saveSourceFiles([recentConversationIdRef.current, effectiveProjectId], pendingFiles);
     setMessages(messagesWithQuestion);
     upsertRecentConversation(messagesWithQuestion, question, pendingFiles);
     if (isNewConversation && typeof onConversationChange === 'function') {
@@ -728,7 +1059,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
 
     try {
       const response = await analysisAPI.chat(question, requestFiles, {
-        provider: 'openai',
         conversationId: recentConversationIdRef.current,
       }, getLatestAnalysisText(messages));
       const providerLabel = 'OpenAI';
@@ -736,6 +1066,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
         ? '화면 입력 키'
         : response.data?.llm_key_source === 'env'
           ? '서버 .env 키'
+          : response.data?.llm_key_received
+            ? '서버 .env 키'
           : '없음';
       const providerNote = response.data?.provider
         ? response.data?.llm_used
@@ -790,7 +1122,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
       // 첫 질문인 경우, 백그라운드에서 AI 채팅방 제목 생성 호출
       if (isNewConversation) {
         analysisAPI.generateChatTitle(question, {
-          provider: 'openai',
         }, getLatestAnalysisText(messages)).then(res => {
           if (res.data?.title) {
             upsertRecentConversation(messagesWithAnswer, question, pendingFiles, res.data.title);
@@ -841,16 +1172,16 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     return {
       ...(existingProject || {}),
       id: existingProject?.id || effectiveProjectId || `project-${Date.now()}`,
-      type: files.some((file) => file.name?.toLowerCase().endsWith('.hwp') || file.name?.toLowerCase().endsWith('.hwpx')) ? 'HWP' : '분석',
+      type: activeFiles.some((file) => file.name?.toLowerCase().endsWith('.hwp') || file.name?.toLowerCase().endsWith('.hwpx')) ? 'HWP' : '분석',
       title,
       owner: localStorage.getItem('username') || 'Guest',
       createdAt: existingProject?.createdAt || savedAt,
       updatedAt: savedAt,
       date: today,
       charts: storedVisuals.length,
-      isHwp: files.some((file) => file.name?.toLowerCase().endsWith('.hwp') || file.name?.toLowerCase().endsWith('.hwpx')),
+      isHwp: activeFiles.some((file) => file.name?.toLowerCase().endsWith('.hwp') || file.name?.toLowerCase().endsWith('.hwpx')),
       inviteCode: existingProject?.inviteCode || restoredData?.inviteCode || createInviteCode(),
-      files: toStoredFiles(files),
+      files: toStoredFiles(activeFiles.length > 0 ? activeFiles : files),
       thread: toStoredThread(messages),
       visuals: storedVisuals,
     };
@@ -876,6 +1207,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
       date: projectRecord.date,
       updatedAt: projectRecord.updatedAt,
       inviteCode: projectRecord.inviteCode,
+      files: projectRecord.files,
       thread: projectRecord.thread,
     };
 
@@ -901,6 +1233,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
         : []),
     ].slice(0, 100));
 
+    await saveSourceFiles([projectRecord.id, recentConversationIdRef.current], activeFiles);
+
     const token = localStorage.getItem('accessToken');
     if (token) {
       try {
@@ -922,6 +1256,37 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
     setProjectNameInput(defaultTitle);
     setIsProjectSaveOpen(true);
   };
+
+  const handleNewAnalysis = () => {
+    sourceResetVersionRef.current += 1;
+    Object.values(sourceObjectUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    sourceObjectUrlsRef.current = {};
+    recentConversationIdRef.current = `conversation-${Date.now()}`;
+    setSavedProjectId(null);
+    setFiles([]);
+    setActiveFiles([]);
+    setPromptText('');
+    setMessages([{ id: 'intro', role: 'ai', text: '분석을 시작하려면 파일을 업로드한 뒤 질문을 입력하세요.' }]);
+    setVisuals([]);
+    setCurrentProject(null);
+    setGeneratedVisuals([]);
+    setIsAnalyzing(false);
+    setIsProjectSaveOpen(false);
+    setProjectNameInput('');
+    setSelectedVisual(null);
+    setSelectedSourceKey('');
+    setSourcePreview({ kind: 'empty', url: '', text: '', message: '' });
+    setSourcePreviewCache({});
+    localStorage.removeItem(getActiveAnalysisSessionKey());
+    clearRestore?.();
+    window.setTimeout(() => promptInputRef.current?.focus(), 0);
+  };
+
+  useEffect(() => {
+    if (!newAnalysisSignal) return;
+    handleNewAnalysis();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newAnalysisSignal]);
 
   const handleSaveAnalysisProject = async () => {
     if (isSavingProject) return;
@@ -1181,6 +1546,15 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
               <button type="button" onClick={openProjectSavePanel} disabled={isSavingProject}>
                 프로젝트 저장
               </button>
+              <button
+                type="button"
+                className="icon-action"
+                onClick={handleNewAnalysis}
+                aria-label="새 분석 시작"
+                title="새 분석 시작"
+              >
+                <FiRefreshCcw aria-hidden="true" />
+              </button>
               <InviteCodePill type="button" onClick={copyInviteCode} title="클릭하면 초대코드가 복사됩니다.">
                 <span>초대코드</span>
                 <strong>{currentInviteCode}</strong>
@@ -1281,15 +1655,39 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
               </div>
             )}
             <div className="input-wrapper">
-              <button
-                type="button"
-                className="clip-upload"
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="파일 업로드"
-                title="파일 업로드"
-              >
-                <i className="fa-solid fa-paperclip"></i>
-              </button>
+              <div className="clip-menu-wrap" ref={clipMenuRef}>
+                <button
+                  type="button"
+                  className={`clip-upload${isClipMenuOpen ? ' active' : ''}`}
+                  onClick={() => setIsClipMenuOpen((prev) => !prev)}
+                  aria-label="생성 메뉴 열기"
+                  aria-expanded={isClipMenuOpen}
+                  title="생성 메뉴"
+                >
+                  <FiPaperclip aria-hidden="true" />
+                </button>
+                {isClipMenuOpen && (
+                  <div className="clip-action-menu" role="menu" aria-label="생성 메뉴">
+                    <button type="button" className="primary-action" role="menuitem" onClick={handleClipFileAdd}>
+                      <FiPaperclip aria-hidden="true" />
+                      <span>파일 추가</span>
+                    </button>
+                    <div className="clip-menu-divider" aria-hidden="true" />
+                    <button type="button" role="menuitem" onClick={() => handleCreateVisualFromMenu('image')}>
+                      <FiImage aria-hidden="true" />
+                      <span>이미지 만들기</span>
+                    </button>
+                    <button type="button" role="menuitem" onClick={() => handleCreateVisualFromMenu('graph')}>
+                      <FiBarChart2 aria-hidden="true" />
+                      <span>그래프 만들기</span>
+                    </button>
+                    <button type="button" role="menuitem" onClick={() => handleCreateVisualFromMenu('table')}>
+                      <FiGrid aria-hidden="true" />
+                      <span>표 만들기</span>
+                    </button>
+                  </div>
+                )}
+              </div>
               <input
                 ref={promptInputRef}
                 value={promptText}

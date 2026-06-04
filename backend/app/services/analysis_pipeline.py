@@ -291,7 +291,6 @@ def run_analysis_pipeline(
     extracted_docs: list[dict],
     uploaded_filenames: list[str] | None = None,
     openai_api_key: str | None = None,
-    google_api_key: str | None = None,
     analysis_text: str = "",
 ) -> dict:
     """분석 서비스의 단일 진입점입니다."""
@@ -302,7 +301,6 @@ def run_analysis_pipeline(
     is_visual_request = _is_visual_request(question)
     deterministic_visual = _visual_fallback(question, extracted_docs) if is_visual_request else None
 
-    selected_provider = "openai"
     request_key = (openai_api_key or "").strip()
     env_key = settings.openai_api_key
     llm_key_source = "request" if request_key else "env" if env_key else "none"
@@ -331,7 +329,7 @@ def run_analysis_pipeline(
             **fallback_answer,
             "answer": json.dumps(deterministic_visual, ensure_ascii=False),
             "llm_used": False,
-            "provider": selected_provider,
+            "provider": "openai",
             "model": None,
             "llm_error": None,
             "llm_key_received": llm_key_received,
@@ -342,9 +340,7 @@ def run_analysis_pipeline(
     llm_answer = analyze_with_llm(
         question,
         extracted_docs,
-        provider=selected_provider,
         openai_api_key=request_key or None,
-        google_api_key=(google_api_key or "").strip() or None,
         analysis_text=analysis_text,
         relevant_chunks=fallback_answer.get("relevant_chunks", []),
     )
