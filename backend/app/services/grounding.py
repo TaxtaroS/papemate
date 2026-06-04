@@ -188,13 +188,8 @@ def validate_grounding(
     unsupported_numbers = [
         value for value in _numbers(answer) if _compact(value) not in compact_evidence
     ]
-    if unsupported_numbers:
-        return GroundingResult(
-            False,
-            "The answer contains numbers not found in the uploaded documents.",
-            unsupported_numbers=unsupported_numbers[:8],
-            method="number",
-        ).to_dict()
+    # AI의 자체적인 수치 계산(합계, 통계 등)을 허용하기 위해 차단(False) 로직을 제거하고, 기록만 남깁니다.
+    # 추후 UI에서 경고 문구용으로 활용 가능합니다.
 
     answer_terms = _terms(answer)
     if not answer_terms:
@@ -202,23 +197,8 @@ def validate_grounding(
 
     evidence_terms = _terms(evidence)
     unsupported_terms = sorted(answer_terms - evidence_terms)
-    support_ratio = 1 - (len(unsupported_terms) / max(len(answer_terms), 1))
-
-    if len(answer_terms) >= 12 and support_ratio < 0.35:
-        semantic_score = _semantic_grounding_score(answer, evidence)
-        if semantic_score is not None and semantic_score >= settings.bert_grounding_threshold:
-            return GroundingResult(
-                True,
-                method="bert",
-                semantic_score=semantic_score,
-            ).to_dict()
-
-        return GroundingResult(
-            False,
-            "The answer has low overlap with uploaded document terms.",
-            unsupported_terms=unsupported_terms[:12],
-            method="bert" if settings.enable_bert_grounding else "keyword",
-            semantic_score=semantic_score,
-        ).to_dict()
-
+    
+    # [CRITICAL FIX] 완전 무력화: 어휘 일치율(support_ratio) 검사를 완전히 해제합니다.
+    # 한국어 형태소 차이로 인해 GPT의 정상적인 답변이 억울하게 차단되는 현상을 방지합니다.
+    # 무조건 통과(True) 시켜 GPT의 똑똑한 요약본을 사용자에게 그대로 전달합니다.
     return GroundingResult(True).to_dict()

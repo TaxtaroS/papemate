@@ -990,7 +990,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, clearRestore, onConv
       <input type="file" ref={fileInputRef} onChange={handleFileChange} style={{ display: 'none' }} multiple />
       <MainLayout>
         <VisualPanel>
-          <div className="compare-shell">
+          <div className={`compare-shell ${isResizingSource ? 'is-resizing' : ''}`} style={{ gridTemplateColumns: `${sourcePaneWidth}% 10px 1fr` }}>
             <section className="source-pane">
               <div className="panel-head">
                 <div>

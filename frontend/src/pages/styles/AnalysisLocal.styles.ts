@@ -15,9 +15,8 @@ export const MainLayout = styled.div`
 `;
 
 export const VisualPanel = styled.div`
-  flex: 0 0 30%;
+  flex: 0 0 50%;
   min-width: 300px;
-  max-width: 420px;
   border-right: 1px solid #e2e8f0;
   padding: 12px;
   overflow: hidden;
@@ -54,11 +53,6 @@ export const VisualPanel = styled.div`
     border-radius: 8px;
     background: #ffffff;
     overflow: hidden;
-  }
-
-  .source-pane,
-  .pane-resizer {
-    display: none;
   }
 
   .panel-head {

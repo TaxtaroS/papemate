@@ -20,8 +20,8 @@ services:
     environment:
       MONGO_URL: mongodb://mongo:27017
       ENABLE_API_DOCS: "false"
-      ENABLE_BERT_GROUNDING: "true"
-      ENABLE_TOPIC_MODELING: "true"
+      ENABLE_BERT_GROUNDING: "false"
+      ENABLE_TOPIC_MODELING: "false"
       TOPIC_MODEL_BACKEND: "bertopic"
     ports:
       - "8000:8000"

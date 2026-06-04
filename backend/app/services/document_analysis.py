@@ -14,7 +14,6 @@ from typing import Iterable
 from xml.etree import ElementTree
 
 from ..core.config import settings
-from .topic_modeling import extract_topics
 
 # 이 파일은 AI가 직접 동작하는 곳이 아니라, AI에 넣을 텍스트를 준비하는 전처리 서비스입니다.
 # 파일 형식별로 본문 텍스트를 추출하고, OpenAI 키가 없을 때 쓸 기본 분석 결과도 만듭니다.
@@ -1287,129 +1286,18 @@ def _legacy_extract_file_text(filename: str, content: bytes) -> tuple[str, str]:
 # OpenAI API가 없거나 실패했을 때도 답변을 만들기 위한 기본 분석 함수입니다.
 # 진짜 LLM이 아니라, 위에서 추출한 텍스트에서 중요 문장/키워드를 규칙 기반으로 뽑습니다.
 def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
-    combined_text = "\n".join(doc["text"] for doc in extracted_docs if doc["text"])
-    intent = _question_intent(question)
-    relevant_chunks = rank_relevant_chunks(question, extracted_docs, 6)
-    relevant_text = "\n".join(chunk["text"] for chunk in relevant_chunks) or combined_text
-    highlights = _top_sentences(relevant_text, 10, question)
-    summary_points = _extractive_summary(relevant_text, question, 4)
-    terms = _frequent_terms(combined_text)
-    metrics = _metric_candidates(combined_text)
-    topics = extract_topics(combined_text)
-
-    if not combined_text.strip():
-        summary = (
-            "업로드 파일은 받았지만 추출 가능한 본문 텍스트가 거의 없습니다. "
-            "이미지라면 OCR 설치가 필요할 수 있고, 구형 HWP는 HWPX 변환이 더 안정적입니다."
-        )
-    else:
-        summary = " ".join(summary_points) or combined_text[:600]
-
-    comparison = [_doc_brief(doc) for doc in extracted_docs]
-    keyword_sets = {item["filename"]: set(item["keywords"]) for item in comparison}
-
-    answer_lines = [
-        _intent_intro(question, intent),
-        "",
-        "LLM 없이 로컬 기본 분석으로 처리했습니다.",
-        f"분석 기준: {_intent_label(intent)}",
-        "",
-        "[핵심 내용 요약]",
-    ]
-
-    if summary_points:
-        answer_lines.extend(f"{index}. {point}" for index, point in enumerate(summary_points, start=1))
-    else:
-        answer_lines.append(summary)
-
-    answer_lines.extend([
-        "",
-        "[중요 문장 발췌]",
-    ])
-
-    if highlights:
-        answer_lines.extend(f"- {sentence}" for sentence in highlights[:8])
-    else:
-        answer_lines.append("- 발췌할 문장을 찾지 못했습니다.")
-
-    answer_lines.extend([
-        "",
-        "[중요 키워드]",
-        ", ".join(terms) if terms else "키워드를 추출할 텍스트가 부족합니다.",
-        "",
-        "[실험 결과/수치 후보]",
-    ])
-
-    if metrics:
-        answer_lines.extend(f"- {metric}" for metric in metrics)
-    else:
-        answer_lines.append("- 정확도, F1, AUC, % 등으로 표시된 실험 수치 후보를 찾지 못했습니다.")
-
-    if topics:
-        answer_lines.extend(["", "[문서 주제 후보]"])
-        for topic in topics[:5]:
-            keywords = ", ".join(topic.get("keywords", [])[:5]) or topic.get("label", "주제")
-            example = topic.get("examples", [""])[0] if topic.get("examples") else ""
-            answer_lines.append(f"- {topic.get('label', '주제')}: {keywords}")
-            if example:
-                answer_lines.append(f"  · 근거 문장: {example[:180]}")
-
-    if relevant_chunks:
-        answer_lines.extend([
-            "",
-            "[질문 관련 문서 구간]",
-        ])
-        for chunk in relevant_chunks[:4]:
-            focused = _top_sentences(chunk["text"], 1, question)
-            preview = (focused[0] if focused else _clean_text(chunk["text"]))[:260]
-            source_label = chunk.get("source_label") or f"Chunk {chunk['chunk_index']}"
-            answer_lines.append(
-                f"- {chunk['filename']} {source_label} "
-                f"(관련도 {chunk['score']}): {preview}"
-            )
-
-    answer_lines.extend([
-        "",
-        "[문서별 핵심 발췌]",
-    ])
-
-    for item in comparison:
-        answer_lines.append(f"- {item['filename']} ({item['format']})")
-        answer_lines.extend(f"  · {point}" for point in item["key_points"][:4])
-        if item["metrics"]:
-            answer_lines.append(f"  · 수치 후보: {' / '.join(item['metrics'])}")
-        if item["keywords"]:
-            answer_lines.append(f"  · 키워드: {', '.join(item['keywords'][:6])}")
-
-    if len(comparison) >= 2:
-        answer_lines.extend(["", "[문서 간 차이점 후보]"])
-        for item in comparison:
-            other_terms = set().union(
-                *(terms for filename, terms in keyword_sets.items() if filename != item["filename"])
-            )
-            unique_terms = [term for term in item["keywords"] if term not in other_terms]
-            answer_lines.append(
-                f"- {item['filename']}: {', '.join(unique_terms[:5]) if unique_terms else '다른 문서와 겹치는 키워드가 많습니다.'}"
-            )
-
-    if question:
-        matched = _top_sentences(combined_text, 4, question)
-        answer_lines.extend(["", "[질문 반영 답변]"])
-        if matched:
-            answer_lines.append(f"'{question}' 관점에서 가장 가까운 근거 문장은 아래와 같습니다.")
-            answer_lines.extend(f"- {sentence}" for sentence in matched)
-        else:
-            answer_lines.append(f"'{question}'와 직접 연결되는 문장을 찾지 못해 전체 요약을 우선 제공했습니다.")
-
+    # [CRITICAL FIX] 불필요한 로컬 1차 분석을 완전히 꺼달라는 사용자 요청에 따라,
+    # 키워드 추출, 문장 요약, 수치 검색 등의 무거운 로컬 연산을 모두 해제하고 빈 껍데기만 즉시 반환합니다.
+    # 이제 로컬 서버는 오직 파일 해독 역할만 하며, 모든 문해력과 분석은 GPT 전담으로 돌아갑니다.
     return {
-        "answer": "\n".join(answer_lines),
-        "summary": summary,
-        "intent": intent,
-        "keywords": terms,
-        "metrics": metrics,
-        "topics": topics,
-        "documents": comparison,
-        "relevant_chunks": relevant_chunks,
+        "answer": "로컬 분석이 해제되었습니다.",
+        "summary": "",
+        "intent": "general",
+        "keywords": [],
+        "metrics": [],
+        "topics": [],
+        "documents": [],
+        "relevant_chunks": [],
     }
 
 
