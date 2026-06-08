@@ -799,6 +799,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     }
 
     setFiles(nextFiles);
+    setPromptText((current) => (current.trim() ? current : '분석해 드릴까요?'));
     writeJson(getActiveAnalysisSessionKey(), {
       id: recentConversationIdRef.current,
       conversationId: recentConversationIdRef.current,
