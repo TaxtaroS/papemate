@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import subprocess
 import tempfile
 import zipfile
@@ -14,10 +15,78 @@ from app.services.document_conversion import render_text_preview_pdf
 
 PREVIEW_CACHE: dict[tuple[str, int], bytes] = {}
 PREVIEW_EXTENSIONS = {".hwp", ".hwpx"}
+BOX_NOISE_PATTERN = re.compile(r"[\u25a0-\u25ff\u2b00-\u2bff\ufffd]+")
+TEXT_NOISE_PATTERN = re.compile(r"[\u0100-\u024f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\ue000-\uf8ff]+")
+IMAGE_META_PATTERN = re.compile(
+    r"(?:원본\s*그림|그림의\s*이름|그림의\s*크기|image|picture|figure)",
+    re.IGNORECASE,
+)
+TABLE_HINT_PATTERN = re.compile(r"(?:^|\s)(?:표|table)\s*\d*|[│┃┌┐└┘├┤┬┴┼]", re.IGNORECASE)
 
 
-def _clean_preview_text(text: str) -> str:
-    return " ".join(str(text or "").split())
+def _clean_preview_line(text: str) -> str:
+    text = str(text or "").replace("\r", "\n")
+    text = BOX_NOISE_PATTERN.sub(" ", text)
+    text = TEXT_NOISE_PATTERN.sub(" ", text)
+    text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]+", " ", text)
+    text = re.sub(r"\^\s*\(?\d+\)?", " ", text)
+    text = re.sub(r"[·•◦]{2,}", " ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()
+
+
+def _is_low_signal_line(line: str) -> bool:
+    if not line:
+        return True
+    letters = re.findall(r"[A-Za-z가-힣0-9]", line)
+    return len(letters) < 2
+
+
+def _is_table_like(raw_line: str, cleaned_line: str) -> bool:
+    if TABLE_HINT_PATTERN.search(cleaned_line):
+        return True
+    return raw_line.count("\t") >= 2 or raw_line.count("|") >= 2
+
+
+def _structure_preview_text(text: str) -> str:
+    image_index = 0
+    table_index = 0
+    output: list[str] = []
+    previous_placeholder = ""
+
+    for raw_line in str(text or "").replace("\r", "\n").splitlines():
+        cleaned = _clean_preview_line(raw_line)
+        placeholder = ""
+
+        if IMAGE_META_PATTERN.search(raw_line) or IMAGE_META_PATTERN.search(cleaned):
+            if previous_placeholder.startswith("[이미지 "):
+                placeholder = previous_placeholder
+            else:
+                image_index += 1
+                placeholder = f"[이미지 {image_index}]"
+        elif _is_table_like(raw_line, cleaned):
+            if previous_placeholder.startswith("[표 "):
+                placeholder = previous_placeholder
+            else:
+                table_index += 1
+                placeholder = f"[표 {table_index}]"
+
+        if placeholder:
+            if placeholder != previous_placeholder:
+                output.append(placeholder)
+            previous_placeholder = placeholder
+            continue
+
+        previous_placeholder = ""
+        if _is_low_signal_line(cleaned):
+            if output and output[-1] != "":
+                output.append("")
+            continue
+        output.append(cleaned)
+
+    structured = "\n".join(output)
+    structured = re.sub(r"\n{3,}", "\n\n", structured)
+    return structured.strip()
 
 
 def _extract_hwpx_preview_text(content: bytes) -> str:
@@ -39,7 +108,7 @@ def _extract_hwpx_preview_text(content: bytes) -> str:
                         texts.append(node.text.strip())
     except Exception:
         return ""
-    return _clean_preview_text(" ".join(texts))
+    return _structure_preview_text("\n".join(texts))
 
 
 def _extract_hwp_preview_text(content: bytes) -> str:
@@ -86,7 +155,7 @@ def _extract_hwp_preview_text(content: bytes) -> str:
                 offset += size
                 if tag_id == 67 and payload:
                     chunks.append(payload.decode("utf-16le", errors="ignore"))
-        return _clean_preview_text(" ".join(chunks))
+        return _structure_preview_text("\n".join(chunks))
     except Exception:
         return ""
     finally:
