@@ -891,6 +891,15 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
 
   const handleCreateVisualFromMenu = (visualType: 'image' | 'graph' | 'table') => {
     if (isAnalyzing) return;
+    if (visualType === 'table') {
+      setIsClipMenuOpen(false);
+      if (files.length > 0) {
+        window.alert('새로 선택한 파일을 먼저 분석한 뒤 표 만들기를 눌러주세요.');
+        return;
+      }
+      handleCreateVisualFromFiles('table', activeFiles, activeFiles);
+      return;
+    }
     pendingVisualTypeRef.current = visualType;
     setIsClipMenuOpen(false);
     fileInputRef.current?.click();
