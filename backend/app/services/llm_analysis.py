@@ -4,12 +4,17 @@ import json
 import concurrent.futures
 import os
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from app.core.config import settings
 from app.services.visual_buttons.graph_visual import process_chart_response
 
 
 MAX_CONTEXT_CHARS = 400000
+MAX_GEMINI_CONTEXT_CHARS = 24000
+MIN_GEMINI_CONTEXT_CHARS = 8000
 
 
 def _clip(text: str, limit: int = MAX_CONTEXT_CHARS) -> str:
@@ -22,9 +27,36 @@ def _build_ranked_document_context(
     question: str,
     extracted_docs: list[dict],
     relevant_chunks: list[dict] | None = None,
+    context_limit: int = MAX_CONTEXT_CHARS,
 ) -> str:
     blocks = []
+    remaining = context_limit
+    for index, chunk in enumerate(relevant_chunks or [], start=1):
+        text = _clip(chunk.get("text", ""), max(1200, min(5000, remaining)))
+        if not text.strip() or remaining <= 0:
+            continue
+        source_label = chunk.get("source_label") or f"Chunk {chunk.get('chunk_index', '?')}"
+        block = "\n".join(
+            [
+                f"[관련 구간 {index}]",
+                f"파일명: {chunk.get('filename', 'unknown')}",
+                f"출처: {source_label}",
+                "본문:",
+                text,
+            ]
+        )
+        blocks.append(block)
+        remaining -= len(block)
+        if remaining <= 2000:
+            break
+
+    if blocks:
+        return _clip("\n\n".join(blocks), context_limit)
+
     for index, doc in enumerate(extracted_docs, start=1):
+        if remaining <= 0:
+            break
+        text = _clip(doc.get("text", ""), max(1200, remaining))
         blocks.append(
             "\n".join(
                 [
@@ -32,11 +64,12 @@ def _build_ranked_document_context(
                     f"파일명: {doc.get('filename', 'unknown')}",
                     f"형식: {doc.get('format', 'unknown')}",
                     "본문:",
-                    _clip(doc.get("text", ""), MAX_CONTEXT_CHARS),
+                    text,
                 ]
             )
         )
-    return _clip("\n\n".join(blocks))
+        remaining -= len(blocks[-1])
+    return _clip("\n\n".join(blocks), context_limit)
 
 
 def _is_visual_request(question: str) -> bool:
@@ -189,8 +222,9 @@ def _build_prompts(
     extracted_docs: list[dict],
     analysis_text: str = "",
     relevant_chunks: list[dict] | None = None,
+    context_limit: int = MAX_CONTEXT_CHARS,
 ) -> tuple[str, str]:
-    document_context = _build_ranked_document_context(question, extracted_docs, relevant_chunks)
+    document_context = _build_ranked_document_context(question, extracted_docs, relevant_chunks, context_limit)
     structured_visual_context = _build_structured_visual_context(question, extracted_docs)
 
     core_prompt = (
@@ -383,6 +417,124 @@ def _postprocess_visual_answer(answer: str) -> str:
         )
 
 
+def _extract_gemini_text(payload: dict) -> str:
+    parts = (
+        ((payload.get("candidates") or [{}])[0].get("content") or {}).get("parts")
+        or []
+    )
+    return "\n".join(str(part.get("text", "")) for part in parts if part.get("text")).strip()
+
+
+def _call_gemini(api_key: str, model: str, system_prompt: str, user_prompt: str) -> str:
+    encoded_model = urllib.parse.quote(model, safe="")
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{encoded_model}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
+    )
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": (
+                            "[System Instructions]\n"
+                            f"{system_prompt}\n\n"
+                            "[User Prompt]\n"
+                            f"{user_prompt}"
+                        )
+                    }
+                ],
+            }
+        ],
+        "generationConfig": {"temperature": 0.2},
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=300) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    return _extract_gemini_text(data)
+
+
+def _http_error_detail(exc: urllib.error.HTTPError) -> str:
+    try:
+        raw = exc.read().decode("utf-8", errors="replace")
+        parsed = json.loads(raw)
+        message = (parsed.get("error") or {}).get("message")
+        if message:
+            return message
+        return raw[:700]
+    except Exception:
+        return str(exc)
+
+
+def _analyze_with_gemini(
+    question: str,
+    extracted_docs: list[dict],
+    api_key: str,
+    analysis_text: str = "",
+    relevant_chunks: list[dict] | None = None,
+) -> dict:
+    model = settings.gemini_model
+    is_visual_request = _is_visual_request(question)
+
+    attempts = [(model, MAX_GEMINI_CONTEXT_CHARS)]
+    for fallback_model in ("gemini-2.5-flash-lite", "gemini-2.5-flash"):
+        if fallback_model != model:
+            attempts.append((fallback_model, MIN_GEMINI_CONTEXT_CHARS))
+
+    last_error = ""
+    used_model = model
+    answer = ""
+    for attempt_model, context_limit in attempts:
+        used_model = attempt_model
+        system_prompt, user_prompt = _build_prompts(
+            question,
+            extracted_docs,
+            analysis_text,
+            relevant_chunks,
+            context_limit=context_limit,
+        )
+        try:
+            answer = _call_gemini(api_key, attempt_model, system_prompt, user_prompt)
+            break
+        except urllib.error.HTTPError as exc:
+            detail = _http_error_detail(exc)
+            last_error = f"HTTP {exc.code}: {detail}"
+            if exc.code != 429:
+                return _llm_error(f"Gemini 호출 실패: {last_error}", "gemini", attempt_model)
+        except Exception as exc:
+            return _llm_error(f"Gemini 호출 실패: {exc}", "gemini", attempt_model)
+    else:
+        return _llm_error(f"Gemini 호출 실패: {last_error or '요청 한도에 걸렸습니다.'}", "gemini", used_model)
+
+    if not answer:
+        return _llm_error("Gemini가 빈 답변을 반환했습니다.", "gemini", used_model)
+
+    if is_visual_request:
+        answer = _postprocess_visual_answer(answer)
+        return {
+            "answer": answer,
+            "suggested_questions": [],
+            "llm_used": True,
+            "model": used_model,
+            "provider": "gemini",
+        }
+
+    main_answer, questions = _parse_suggested_questions(answer)
+    return {
+        "answer": main_answer,
+        "suggested_questions": questions,
+        "llm_used": True,
+        "model": used_model,
+        "provider": "gemini",
+    }
+
+
 def _analyze_with_openai(
     question: str,
     extracted_docs: list[dict],
@@ -498,19 +650,30 @@ def _analyze_with_openai(
 def analyze_with_llm(
     question: str,
     extracted_docs: list[dict],
+    provider: str = "gemini",
     openai_api_key: str | None = None,
+    google_api_key: str | None = None,
     analysis_text: str = "",
     relevant_chunks: list[dict] | None = None,
 ) -> dict:
+    selected_provider = (provider or "gemini").strip().lower()
+    if selected_provider in {"gemini", "google"}:
+        api_key = google_api_key or settings.gemini_api_key or settings.google_api_key or openai_api_key or settings.openai_api_key
+        if not api_key:
+            return _llm_error("Gemini API 키가 없어 기본 문서 추출로 응답했습니다.", "gemini", settings.gemini_model)
+        return _analyze_with_gemini(question, extracted_docs, api_key, analysis_text, relevant_chunks)
+
     api_key = openai_api_key or settings.openai_api_key
     if not api_key:
-        return _llm_error("OpenAI API 키가 없어 기본 문서 추출로 응답했습니다.", "openai")
+        return _llm_error("OpenAI API 키가 없어 기본 문서 추출로 응답했습니다.", "openai", settings.openai_model)
     return _analyze_with_openai(question, extracted_docs, api_key, analysis_text, relevant_chunks)
 
 
 def generate_chat_title(
     question: str,
+    provider: str = "gemini",
     openai_api_key: str | None = None,
+    google_api_key: str | None = None,
     analysis_text: str = "",
 ) -> str:
     """사용자의 첫 질문을 바탕으로 3~5단어의 짧은 제목을 생성합니다."""
@@ -519,6 +682,16 @@ def generate_chat_title(
         f"질문: {question}\n\n"
         "오직 제목만 출력할 것."
     )
+
+    selected_provider = (provider or "gemini").strip().lower()
+    if selected_provider in {"gemini", "google"}:
+        api_key = google_api_key or settings.gemini_api_key or settings.google_api_key or openai_api_key or settings.openai_api_key
+        if not api_key:
+            return question[:20]
+        try:
+            return _call_gemini(api_key, settings.gemini_model, "", prompt).strip().replace('"', "").replace("'", "")[:40]
+        except Exception:
+            return question[:20]
 
     api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
     if not api_key:

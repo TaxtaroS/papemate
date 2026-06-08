@@ -255,6 +255,21 @@ const normalizeRestoredThread = (thread: any[] = []) =>
     })
     .filter(Boolean);
 
+const pickFirstArray = (...values) => values.find((value) => Array.isArray(value) && value.length > 0) || [];
+
+const buildRestoredThreadFromSummary = (sessionData: any = {}) => [
+  (sessionData.q || sessionData.question) && {
+    id: 'restored-q',
+    role: 'user',
+    text: sessionData.q || sessionData.question,
+  },
+  (sessionData.a || sessionData.answer || sessionData.summary || sessionData.analysis) && {
+    id: 'restored-a',
+    role: 'ai',
+    text: sessionData.a || sessionData.answer || sessionData.summary || sessionData.analysis,
+  },
+].filter(Boolean);
+
 const dedupeVisuals = (visuals: any[] = []) => {
   const seen = new Set();
   return visuals.filter((visual) => {
@@ -462,6 +477,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
   const clipMenuRef = useRef(null);
   const sourceObjectUrlsRef = useRef<Record<string, string>>({});
   const sourceResetVersionRef = useRef(0);
+  const previousNewAnalysisSignalRef = useRef(newAnalysisSignal);
   const recentConversationIdRef = useRef(
     restoredData?.conversationId || restoredData?.projectId || projectId || `conversation-${Date.now()}`
   );
@@ -520,14 +536,32 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       recentConversationIdRef.current = sessionData.conversationId || sessionData.projectId || sessionData.id;
     }
 
-    const restoredFiles = Array.isArray(sessionData.files) ? sessionData.files : [];
-    const restoredThread = Array.isArray(sessionData.thread) && sessionData.thread.length > 0
-      ? sessionData.thread
-      : [
-          sessionData.q && { id: 'restored-q', role: 'user', text: sessionData.q },
-          sessionData.a && { id: 'restored-a', role: 'ai', text: sessionData.a },
-        ].filter(Boolean);
+    const restoredFiles = pickFirstArray(sessionData.files, sessionData.sourceFiles, sessionData.uploadedFiles);
+    const restoredThread = pickFirstArray(
+      sessionData.thread,
+      sessionData.messages,
+      sessionData.chat,
+      sessionData.conversation,
+      sessionData.conversationThread,
+      sessionData.history
+    ).length > 0
+      ? pickFirstArray(
+          sessionData.thread,
+          sessionData.messages,
+          sessionData.chat,
+          sessionData.conversation,
+          sessionData.conversationThread,
+          sessionData.history
+        )
+      : buildRestoredThreadFromSummary(sessionData);
     const normalizedThread = normalizeRestoredThread(restoredThread);
+    const fallbackThread = normalizedThread.length > 0
+      ? normalizedThread
+      : [{
+          id: 'restored-project',
+          role: 'ai',
+          text: `"${sessionData.projectTitle || sessionData.title || '저장된 프로젝트'}" 프로젝트를 불러왔습니다.`,
+        }];
 
     setFiles([]);
     setActiveFiles(restoredFiles);
@@ -557,15 +591,15 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
         setSelectedSourceKey(getFileKey(restoredSourceFiles[0]));
       }
     });
-    if (normalizedThread.length > 0) setMessages(normalizedThread);
+    setMessages(fallbackThread);
     setCurrentProject(sessionData);
 
-    const restoredGeneratedVisuals = normalizedThread.filter((msg: any) => msg.role === 'asset' && isVisualStorageItem(msg));
+    const restoredGeneratedVisuals = fallbackThread.filter((msg: any) => msg.role === 'asset' && isVisualStorageItem(msg));
     setGeneratedVisuals(dedupeVisuals(restoredGeneratedVisuals));
 
     const threadVisualIds = new Set(restoredGeneratedVisuals.map((visual: any) => normalizeVisualId(visual.id)));
     setVisuals(dedupeVisuals((sessionData.visuals || []).filter((visual: any) => isVisualStorageItem(visual) && !threadVisualIds.has(normalizeVisualId(visual.id)))));
-    return normalizedThread.length > 0 || restoredFiles.length > 0;
+    return fallbackThread.length > 0 || restoredFiles.length > 0;
   };
 
   useEffect(() => {
@@ -1006,9 +1040,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
   const handleSendMessage = async (filesToSend = files, overrideQuestion = '') => {
     const nextQuestion = overrideQuestion || promptText.trim();
     const newFiles = [...filesToSend];
-    const activeUploadFiles = activeFiles.filter(isUploadableFile);
-    const requestFiles = newFiles.length > 0 ? newFiles.filter(isUploadableFile) : activeUploadFiles;
-    const pendingFiles = newFiles.length > 0 ? newFiles : [...activeFiles];
+    const pendingFiles = newFiles.length > 0 ? mergeUniqueFiles(activeFiles, newFiles) : [...activeFiles];
+    const requestFiles = pendingFiles.filter(isUploadableFile);
     const hasNewUpload = newFiles.length > 0;
     if (!nextQuestion && pendingFiles.length === 0) {
       window.alert('질문을 입력하거나 파일을 선택해주세요.');
@@ -1019,13 +1052,13 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     setPromptText('');
     if (hasNewUpload) {
       setActiveFiles(pendingFiles);
-      setSelectedSourceKey(getFileKey(pendingFiles[0]));
+      setSelectedSourceKey(selectedSourceKey || getFileKey(newFiles[0] || pendingFiles[0]));
       setFiles([]);
     }
 
-    const fileNames = pendingFiles.map((file) => file.name).filter(Boolean).join(', ');
+    const uploadedFileNames = newFiles.map((file) => file.name).filter(Boolean).join(', ');
     const fileMessage = hasNewUpload
-      ? { id: `uploaded-files-${Date.now()}`, role: 'system', text: `업로드된 파일: ${fileNames}`, createdAt: nowIso() }
+      ? { id: `uploaded-files-${Date.now()}`, role: 'system', text: `업로드된 파일: ${uploadedFileNames}`, createdAt: nowIso() }
       : null;
     const userMessage = { id: `user-${Date.now()}`, role: 'user', text: question, createdAt: nowIso() };
     const messagesWithQuestion = [...messages, ...(fileMessage ? [fileMessage] : []), userMessage];
@@ -1069,7 +1102,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       const response = await analysisAPI.chat(question, requestFiles, {
         conversationId: recentConversationIdRef.current,
       }, getLatestAnalysisText(messages));
-      const providerLabel = 'OpenAI';
+      const providerName = String(response.data?.provider || 'gemini').toLowerCase();
+      const providerLabel = providerName === 'openai' ? 'OpenAI' : providerName === 'gemini' ? 'Gemini' : response.data?.provider;
       const keySourceLabel = response.data?.llm_key_source === 'request'
         ? '화면 입력 키'
         : response.data?.llm_key_source === 'env'
@@ -1084,7 +1118,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
         : '';
       const answer = response.data?.answer || response.data?.summary || buildLocalFallbackAnswer(question, pendingFiles, messages);
       const successMessage = hasNewUpload
-        ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${fileNames}`, createdAt: nowIso() }
+        ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${uploadedFileNames}`, createdAt: nowIso() }
         : null;
       const suggestedQuestions = response.data?.suggested_questions || [];
 
@@ -1292,7 +1326,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
   };
 
   useEffect(() => {
-    if (!newAnalysisSignal) return;
+    if (!newAnalysisSignal || previousNewAnalysisSignalRef.current === newAnalysisSignal) return;
+    previousNewAnalysisSignalRef.current = newAnalysisSignal;
     handleNewAnalysis();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newAnalysisSignal]);
@@ -1707,7 +1742,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
                 )}
               </div>
             ))}
-            {isAnalyzing && <AiRow><div className="ai-box">OpenAI가 문서를 분석하고 있습니다...</div></AiRow>}
+            {isAnalyzing && <AiRow><div className="ai-box">Gemini가 문서를 분석하고 있습니다...</div></AiRow>}
           </StreamMessageArea>
 
           <BottomPromptInput onKeyDownCapture={handlePromptEnter}>

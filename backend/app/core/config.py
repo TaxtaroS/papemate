@@ -170,7 +170,7 @@ def create_settings() -> Settings:
         google_api_key=os.getenv("GOOGLE_API_KEY", "").strip(),
         google_client_id=(os.getenv("GOOGLE_CLIENT_ID") or os.getenv("VITE_GOOGLE_CLIENT_ID", "")).strip(),
         gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
-        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip(),
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
         enable_bert_grounding=_env_bool("ENABLE_BERT_GROUNDING", False),
         bert_grounding_model=os.getenv(
             "BERT_GROUNDING_MODEL",

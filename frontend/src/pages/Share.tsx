@@ -331,10 +331,12 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     [allProjects, room.loadedProjectIds]
   );
 
-  const activeProject =
-    allProjects.find((project) => project.id === room.mainProjectId) ||
-    allProjects.find((project) => project.id === selectedProjectId) ||
-    loadedProjects[0];
+  const hasActiveShare = Boolean(activeShareCode);
+  const activeProject = hasActiveShare
+    ? allProjects.find((project) => project.id === room.mainProjectId) ||
+      allProjects.find((project) => project.id === selectedProjectId) ||
+      loadedProjects[0]
+    : null;
   const activeInviteCode = activeProject?.inviteCode || activeShareCode || '';
   const supportProjects = useMemo(
     () => loadedProjects.filter((project) => project.id !== activeProject?.id),
@@ -516,6 +518,12 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
   // room 상태가 변경될 때 로컬 저장소에도 업데이트합니다.
   // 활성 초대코드가 있으면 공유 방과 일반 방 둘 다 동기화합니다.
   useEffect(() => {
+    if (!activeShareCode) {
+      if (JSON.stringify(readJson(getShareRoomKey(), null)) !== JSON.stringify(fallbackRoom)) {
+        writeJson(getShareRoomKey(), { ...fallbackRoom });
+      }
+      return;
+    }
     const roomKey = activeShareCode ? getSharedRoomKey(activeShareCode) : getShareRoomKey();
     const nextRoom = {
       ...room,
@@ -669,6 +677,18 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
       members: alreadyJoined ? asArray(sharedRoom.members) : [...asArray(sharedRoom.members), { id: Date.now(), name: username }],
     });
     setNotice(`참여 완료: "${matchedProject.title}" 결과 토론방을 불러왔습니다.`);
+  };
+
+  const handleCreateNewSharePage = () => {
+    writeJson(getShareRoomKey(), { ...fallbackRoom });
+    setActiveShareCode('');
+    setSelectedProjectId('');
+    setSupportInviteCode('');
+    setTypedMsg('');
+    setImageDataUrls({});
+    setSelectedVisualAsset(null);
+    setRoom({ ...fallbackRoom });
+    setNotice('새 공유 페이지를 만들었습니다. 초대코드를 입력해 프로젝트를 불러오세요.');
   };
 
   const loadSupportProjectByCode = () => {
@@ -1175,6 +1195,10 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
       </MainTimelineContent>
 
       <RightCoopPanel $error={notice.includes('정확히')}>
+        <button className="new-share-page-btn" type="button" onClick={handleCreateNewSharePage}>
+          <i className="fa-solid fa-plus"></i>
+          새로운 공유 페이지 만들기
+        </button>
         <div className="invite-help">초대코드로 프로젝트를 불러옵니다</div>
         <div className="code-row top-code">
           <div className="code-label">초대코드</div>

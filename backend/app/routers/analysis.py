@@ -166,6 +166,40 @@ def _clean_evidence_text(text: str) -> str:
     return " ".join(str(text or "").split())
 
 
+def _split_evidence_sentences(text: str, limit: int = 4) -> list[str]:
+    cleaned = _clean_evidence_text(text)
+    if not cleaned:
+        return []
+
+    cleaned = re.sub(r"\s+(?=(?:○|※|\[[^\]]+\]|【[^】]+】))", "\n", cleaned)
+    parts = re.split(r"\n+|(?<=[.!?。！？])\s+|(?<=다\.)\s+|(?<=임\.)\s+", cleaned)
+    sentences = []
+    seen = set()
+    for part in parts:
+        sentence = _clean_evidence_text(part).strip(" -")
+        if len(sentence) < 12 or sentence in seen:
+            continue
+        seen.add(sentence)
+        sentences.append(sentence)
+        if len(sentences) >= limit:
+            break
+    if sentences:
+        return sentences
+    return [cleaned[:180]]
+
+
+def _evidence_preview(text: str, limit: int = 180) -> str:
+    sentence = (_split_evidence_sentences(text, 1) or [_clean_evidence_text(text)])[0]
+    if len(sentence) <= limit:
+        return sentence
+    return sentence[:limit].rstrip() + "..."
+
+
+def _summary_bullets(summary: str, limit: int = 3) -> list[str]:
+    bullets = _split_evidence_sentences(summary, limit)
+    return [_evidence_preview(bullet, 170) for bullet in bullets if bullet]
+
+
 def _assistant_intro(question: str, intent: str | None = None) -> str:
     labels = {
         "summary": "핵심 내용과 중요도",
@@ -206,7 +240,7 @@ def _merge_llm_answer_with_evidence(question: str, llm_answer: str, fallback_ans
             filename = chunk.get("filename", "문서")
             source_label = chunk.get("source_label") or f"Chunk {chunk.get('chunk_index', '?')}"
             score = chunk.get("score")
-            evidence_text = _clean_evidence_text(chunk.get("text", ""))
+            evidence_text = _evidence_preview(chunk.get("text", ""), 220)
             chunk_lines.append(f"- {filename} {source_label} (관련도 {score}): {evidence_text}")
         sections.append("[관련 문서 구간]\n" + "\n".join(chunk_lines))
 
@@ -251,18 +285,23 @@ def _concise_grounded_answer(question: str, fallback_answer: dict) -> str:
     else:
         summary = fallback_answer.get("summary", "")
         if summary:
-            sections.append(f"\n[요약]\n{_clean_evidence_text(summary)[:900]}")
+            bullets = _summary_bullets(summary, 4)
+            if bullets:
+                sections.append("\n[요약]\n" + "\n".join(f"- {bullet}" for bullet in bullets))
 
     metrics = fallback_answer.get("metrics") or []
     if metrics:
-        sections.append("\n[수치 후보]\n" + "\n".join(f"- {metric}" for metric in metrics[:8]))
+        sections.append(
+            "\n[수치 후보]\n"
+            + "\n".join(f"- {_evidence_preview(metric, 160)}" for metric in metrics[:6])
+        )
 
     if relevant_chunks:
         evidence_lines = []
         for chunk in relevant_chunks[:3]:
             filename = chunk.get("filename", "문서")
             source_label = chunk.get("source_label") or f"Chunk {chunk.get('chunk_index', '?')}"
-            evidence = _clean_evidence_text(chunk.get("text", ""))[:420]
+            evidence = _evidence_preview(chunk.get("text", ""), 180)
             evidence_lines.append(f"- {filename} {source_label}: {evidence}")
         sections.append("\n[근거]\n" + "\n".join(evidence_lines))
 
@@ -277,7 +316,7 @@ def _concise_grounded_answer(question: str, fallback_answer: dict) -> str:
 async def analyze_chat(
     question: str = Form(""),
     conversation_id: str = Form(""),
-    llm_provider: str = Form("openai"),
+    llm_provider: str = Form("gemini"),
     openai_api_key: str = Form(""),
     google_api_key: str = Form(""),
     files: list[UploadFile] = File(default=[]),
@@ -327,11 +366,15 @@ async def analyze_chat(
     has_grounded_docs = any(str(doc.get("text", "")).strip() for doc in extracted_docs)
     is_visual_request = _is_visual_request(question)
     deterministic_visual = _visual_fallback(question, extracted_docs) if is_visual_request else None
-    # 분석 화면은 OpenAI 전용으로 단순화했습니다.
-    # Google/Gemini 키가 .env에 있어도 자동 전환하지 않고, OpenAI 키가 없으면 로컬 분석으로 내려갑니다.
-    selected_provider = "openai"
-    request_key = openai_api_key.strip()
-    env_key = settings.openai_api_key
+    selected_provider = (llm_provider or "gemini").strip().lower()
+    if selected_provider not in {"gemini", "google", "openai"}:
+        selected_provider = "gemini"
+    request_key = google_api_key.strip() if selected_provider in {"gemini", "google"} else openai_api_key.strip()
+    env_key = (
+        settings.gemini_api_key or settings.google_api_key or settings.openai_api_key
+        if selected_provider in {"gemini", "google"}
+        else settings.openai_api_key
+    )
 
     llm_key_source = "request" if request_key else "env" if env_key else "none"
     llm_key_received = llm_key_source != "none"
@@ -389,6 +432,7 @@ async def analyze_chat(
         openai_api_key=openai_api_key.strip() or None,
         google_api_key=google_api_key.strip() or None,
         analysis_text=analysis_text,
+        relevant_chunks=fallback_answer.get("relevant_chunks", []),
     )
     if not llm_answer.get("llm_used"):
         if is_visual_request:
@@ -462,7 +506,7 @@ async def analyze_chat(
             "llm_used": False,
             "provider": llm_answer.get("provider"),
             "model": llm_answer.get("model"),
-            "llm_error": "OpenAI 답변에 문서 근거와 맞지 않는 내용이 있어 로컬 근거 답변으로 전환했습니다.",
+            "llm_error": "LLM 답변에 문서 근거와 맞지 않는 내용이 있어 로컬 근거 답변으로 전환했습니다.",
             "llm_key_received": llm_key_received,
             "llm_key_source": llm_key_source,
             "suggested_questions": llm_answer.get("suggested_questions", []),
@@ -504,12 +548,14 @@ async def analyze_chat(
 @router.post("/title")
 async def generate_title(
     question: str = Form(""),
-    llm_provider: str = Form("openai"),
+    llm_provider: str = Form("gemini"),
     openai_api_key: str = Form(""),
     google_api_key: str = Form(""),
     analysis_text: str = Form("")
 ):
-    selected_provider = "openai"
+    selected_provider = (llm_provider or "gemini").strip().lower()
+    if selected_provider not in {"gemini", "google", "openai"}:
+        selected_provider = "gemini"
     
     from ..services.llm_analysis import generate_chat_title
     

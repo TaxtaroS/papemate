@@ -42,6 +42,22 @@ _STOPWORDS = {
     "정보",
     "사용자",
     "질문",
+    "핵심",
+    "중요",
+    "정리",
+    "공표",
+    "확인",
+    "기준",
+    "경우",
+    "현재",
+    "전체",
+    "해당",
+    "통해",
+    "대한",
+    "관한",
+    "보입니다",
+    "했습니다",
+    "있습니다",
 }
 
 
@@ -203,8 +219,9 @@ def validate_grounding(
     evidence_terms = _terms(evidence)
     unsupported_terms = sorted(answer_terms - evidence_terms)
     support_ratio = 1 - (len(unsupported_terms) / max(len(answer_terms), 1))
+    supported_terms = answer_terms & evidence_terms
 
-    if len(answer_terms) >= 12 and support_ratio < 0.35:
+    if len(answer_terms) >= 12 and support_ratio < 0.22 and len(supported_terms) < 5:
         semantic_score = _semantic_grounding_score(answer, evidence)
         if semantic_score is not None and semantic_score >= settings.bert_grounding_threshold:
             return GroundingResult(
