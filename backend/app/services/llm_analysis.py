@@ -198,7 +198,7 @@ def _build_prompts(
         "[Core Principles]\n"
         "1. Strict Grounding: You MUST base your answers SOLELY on the provided document (Context). Zero hallucination. Do not use external knowledge.\n"
         "2. Citation: Always append the precise source at the end of sentences when citing facts or numbers. For PDFs, cite only the provided source label like [File Name - Page X]. Never treat bracketed reference numbers such as [26] in a REFERENCES section as page numbers. For HWP/HWPX/DOCX, cite the provided section label. NEVER cite the [Previous Conversation History] as a source.\n"
-        "3. Output Language: ALL user-facing responses, including chart labels and suggested questions, MUST be in Korean.\n"
+        "3. Output Language: Always write final user-facing responses in Korean, regardless of the uploaded document language. If the source document is English or another language, translate and synthesize it into natural Korean. Keep proper nouns, model names, technical abbreviations, numbers, and citations as-is only when necessary. Chart labels and suggested questions MUST also be Korean.\n"
         "4. Reasoning Discipline: Before writing your final answer, deeply analyze the user's request and the document context step-by-step internally. Extract all necessary facts first, then synthesize them into a logical and highly accurate final response. Do not reveal hidden chain-of-thought; provide concise evidence summaries only when useful.\n\n"
     )
 
@@ -286,6 +286,7 @@ def _build_prompts(
 
 {doc_block}{history_block}
 Use the uploaded document context as the primary source. Use previous conversation history only to understand continuity, never as a citation source.
+Important: Even if the uploaded document context is English, write the final analysis and summary in Korean.
 """
     else:
         user_prompt = f"""
@@ -294,6 +295,7 @@ Use the uploaded document context as the primary source. Use previous conversati
 
 {doc_block}{history_block}
 Use the uploaded document context as the primary source. Use previous conversation history only to understand continuity, never as a citation source.
+Important: Even if the uploaded document context is English, write the final analysis and summary in Korean.
 """
     return system_prompt, user_prompt
 
@@ -319,6 +321,51 @@ def _parse_suggested_questions(answer: str) -> tuple[str, list[str]]:
             if cleaned:
                 questions.append(cleaned)
     return main_answer, questions
+
+
+def _korean_char_ratio(text: str) -> float:
+    letters = re.findall(r"[A-Za-z가-힣]", text or "")
+    if not letters:
+        return 1.0
+    korean_letters = [char for char in letters if "가" <= char <= "힣"]
+    return len(korean_letters) / len(letters)
+
+
+def _needs_korean_rewrite(answer: str) -> bool:
+    if not answer:
+        return False
+    if _korean_char_ratio(answer) >= 0.25:
+        return False
+    english_words = re.findall(r"\b[A-Za-z]{4,}\b", answer)
+    korean_words = re.findall(r"[가-힣]{2,}", answer)
+    return len(english_words) >= max(8, len(korean_words) * 2)
+
+
+def _rewrite_answer_in_korean(answer: str, api_key: str, model: str) -> str:
+    try:
+        from openai import OpenAI
+    except ModuleNotFoundError:
+        return answer
+
+    prompt = (
+        "아래 답변은 문서 분석 결과입니다. 문서 원문이 영어여도 최종 사용자가 보는 답변은 반드시 자연스러운 한국어여야 합니다.\n"
+        "고유명사, 논문 제목, 약어, 수치, 인용 표기, JSON 키, '===SUGGESTED_QUESTIONS===' 구분자는 보존하세요.\n"
+        "본문의 분석, 요약, 추천 질문, 표/차트 라벨 설명은 한국어로 번역하고 어색한 직역은 다듬어 주세요.\n\n"
+        f"[답변]\n{answer}"
+    )
+
+    try:
+        client = OpenAI(api_key=api_key, timeout=120.0, max_retries=1)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+        )
+        rewritten = (response.choices[0].message.content or "").strip()
+        return rewritten or answer
+    except Exception as exc:
+        print(f"Korean rewrite failed: {exc}")
+        return answer
 
 
 def _chunk_text(text: str, chunk_size: int = 30000) -> list[str]:
@@ -350,7 +397,7 @@ def _extract_chunk_with_openai(
         prompt = (
             "You are a fast document extraction assistant.\n"
             "Extract the most important facts, numbers, named entities, claims, methods, and conclusions from the text chunk below.\n"
-            "Keep the original meaning and write concise bullet points.\n\n"
+            "Keep the original meaning, but write concise bullet points in Korean. Preserve proper nouns, technical terms, numbers, and citations when needed.\n\n"
             f"[Text Chunk]\n{chunk}"
         )
 
@@ -455,6 +502,7 @@ def _analyze_with_openai(
                     f"{extracted_context}\n\n"
                     f"{history_block}"
                     "Write a thorough Korean analysis based only on the extracted facts above. "
+                    "The source facts may include English, but the final user-facing answer must be natural Korean. "
                     "Preserve concrete facts, numbers, names, methods, and conclusions."
                 )
 
@@ -483,6 +531,9 @@ def _analyze_with_openai(
             "model": model,
             "provider": "openai",
         }
+
+    if _needs_korean_rewrite(answer):
+        answer = _rewrite_answer_in_korean(answer, api_key, model)
 
     main_answer, questions = _parse_suggested_questions(answer)
 
