@@ -4,12 +4,11 @@ import json
 import os
 import re
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.core.config import settings
 from app.core.uploads import read_upload_content, validate_upload_count
 from ..services.document_analysis import build_analysis_answer, extract_file_document
-from ..services.document_conversion import render_text_preview_pdf
 from ..services.grounding import validate_grounding
 from ..services.llm_analysis import analyze_with_llm
 from models.schemas import AnalysisResponse
@@ -19,7 +18,6 @@ from models.schemas import AnalysisResponse
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
 DOCUMENT_SESSION_CACHE: dict[str, list[dict]] = {}
-DOCUMENT_PREVIEW_CACHE: dict[tuple[str, int], bytes] = {}
 
 
 def _is_visual_request(question: str) -> bool:
@@ -269,46 +267,6 @@ def _concise_grounded_answer(question: str, fallback_answer: dict) -> str:
         sections.append("\n[근거]\n" + "\n".join(evidence_lines))
 
     return "\n".join(section for section in sections if section.strip())
-
-
-@router.post("/preview")
-async def preview_document(file: UploadFile = File(...)):
-    """Convert HWP/HWPX uploads into a PDF preview for the source pane."""
-
-    filename = file.filename or "document"
-    extension = os.path.splitext(filename)[1].lower()
-    if extension not in {".hwp", ".hwpx"}:
-        raise HTTPException(status_code=400, detail="HWP/HWPX 파일만 PDF 미리보기를 생성할 수 있습니다.")
-
-    content = await read_upload_content(file)
-    cache_key = (filename, hash(content))
-    cached_pdf = DOCUMENT_PREVIEW_CACHE.get(cache_key)
-    if cached_pdf:
-        return Response(
-            content=cached_pdf,
-            media_type="application/pdf",
-            headers={"Content-Disposition": 'inline; filename="preview.pdf"'},
-        )
-
-    try:
-        extracted_doc = extract_file_document(filename, content)
-        pdf_bytes = render_text_preview_pdf(
-            filename,
-            extracted_doc.get("text", ""),
-            source_format=extracted_doc.get("format") or extension.lstrip(".").upper(),
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"{filename} PDF 미리보기 생성 중 오류가 발생했습니다: {exc}") from exc
-
-    if len(DOCUMENT_PREVIEW_CACHE) > 20:
-        DOCUMENT_PREVIEW_CACHE.clear()
-    DOCUMENT_PREVIEW_CACHE[cache_key] = pdf_bytes
-
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": 'inline; filename="preview.pdf"'},
-    )
 
 
 # 프론트엔드 Analysis.js의 analysisAPI.chat(question, files)가 호출하는 엔드포인트입니다.

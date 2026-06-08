@@ -113,7 +113,7 @@ export const analysisAPI = {
     const formData = new FormData();
     formData.append('file', file, file.name || 'document');
 
-    return apiClient.post('/api/analysis/preview', formData, {
+    return apiClient.post('/api/document-previews/pdf', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       responseType: 'blob',
     });
