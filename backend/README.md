@@ -25,6 +25,39 @@ docs/       워크플로우 다이어그램, 설계 문서, 회의 기록
 
 AI 문서 파싱과 질의응답 모델 처리는 현재 백엔드 서비스 모듈에서 관리하며, 필요하면 추후 `ai-service/`로 분리할 수 있습니다.
 
+백엔드 실행
+-----------
+
+```bash
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+환경 변수는 `backend/.env.example`을 `backend/.env`로 복사해서 설정합니다. 로컬 개발에서는 `MONGO_URL=mongodb://localhost:27017`을 사용할 수 있고, Docker Compose 배포에서는 루트 `docker-compose.yml`이 `MONGO_URL=mongodb://mongo:27017`로 덮어씁니다.
+
+백엔드 배포
+-----------
+
+백엔드는 React 정적 파일을 직접 서빙하지 않고 API만 제공합니다. EC2에서는 루트 `docker-compose.yml`로 FastAPI 백엔드와 MongoDB를 실행하고, Vercel 프론트엔드는 `VITE_API_BASE_URL`로 이 백엔드의 공개 주소를 호출합니다.
+
+운영 환경에서는 최소한 아래 값을 실제 운영 값으로 변경합니다.
+
+- `APP_ENV=production`
+- `JWT_SECRET_KEY`
+- `OPENAI_API_KEY` 또는 사용하는 LLM 키
+- `GOOGLE_CLIENT_ID`
+- `CORS_ORIGINS`
+
+Vercel preview URL도 허용하려면 `CORS_ORIGIN_REGEX=https://.*\.vercel\.app`을 설정합니다. 고정 운영 도메인만 허용하려면 이 값은 비워두는 편이 좋습니다.
+
+EC2 Docker 실행:
+
+```bash
+cp .env.example .env
+cp backend/.env.example backend/.env
+docker compose up -d --build
+```
+
 파트별 환경 설정 가이드
 -----------------------
 

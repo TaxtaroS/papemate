@@ -7,8 +7,8 @@ RUN npm ci --legacy-peer-deps
 
 COPY frontend/ ./
 
-# 배포에서는 nginx가 /api 요청을 백엔드 컨테이너로 프록시합니다.
-# 그래서 프론트 빌드 안에는 별도 API 주소를 박지 않는 것이 기본값입니다.
+# Vercel 배포에서는 대시보드의 VITE_API_BASE_URL이 EC2 백엔드 주소를 가리킵니다.
+# 이 Dockerfile은 자체 호스팅이 필요할 때만 사용합니다.
 ARG VITE_API_BASE_URL=
 ARG VITE_GOOGLE_CLIENT_ID=
 ARG VITE_GOOGLE_ALLOWED_ORIGINS=

@@ -73,13 +73,6 @@ def _env_list(name: str, default: list[str]) -> list[str]:
     return values
 
 
-def _env_path(name: str, default: Path) -> Path:
-    configured = os.getenv(name)
-    if not configured:
-        return default
-    return Path(configured)
-
-
 @dataclass(frozen=True)
 class Settings:
     app_name: str
@@ -96,7 +89,7 @@ class Settings:
     access_token_expire_minutes: int
 
     cors_origins: list[str]
-    frontend_build_dir: Path
+    cors_origin_regex: str | None
 
     max_upload_mb: int
     max_upload_files: int
@@ -164,7 +157,7 @@ def create_settings() -> Settings:
         jwt_secret_key=os.getenv("JWT_SECRET_KEY", DEFAULT_JWT_SECRET),
         access_token_expire_minutes=_env_int("ACCESS_TOKEN_EXPIRE_MINUTES", 1440),
         cors_origins=_env_list("CORS_ORIGINS", DEFAULT_CORS_ORIGINS),
-        frontend_build_dir=_env_path("FRONTEND_BUILD_DIR", PROJECT_ROOT / "frontend" / "dist"),
+        cors_origin_regex=os.getenv("CORS_ORIGIN_REGEX", "").strip() or None,
         max_upload_mb=_env_int("MAX_UPLOAD_MB", 25),
         max_upload_files=_env_int("MAX_UPLOAD_FILES", 10),
         hwpx_jar=os.getenv("HWPX_JAR", "").strip(),

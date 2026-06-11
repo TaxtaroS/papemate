@@ -1,19 +1,18 @@
 # 초보자 안내:
 # 이 파일은 FastAPI 백엔드의 진입점입니다.
 # 프론트엔드의 main.tsx가 React 앱을 시작하듯이, 여기서는 API 서버를 만들고
-# 로그인/분석/프로젝트/시각화 라우터와 배포용 프론트 파일을 연결합니다.
+# 로그인/분석/프로젝트/시각화 라우터를 연결합니다.
+# 배포용 프론트 파일은 Vercel이 제공하고, 이 서버는 EC2에서 API만 제공합니다.
 
 import logging
 import time
 import uuid
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.database import close_database, ensure_indexes, ping_database
@@ -28,16 +27,8 @@ from app.routers.shared_rooms import router as shared_rooms_router
 from app.routers.visual_assets import router as visual_assets_router
 from app.routers.visuals import router as visuals_router
 
-RESERVED_FRONTEND_PATHS = {"docs", "openapi.json", "redoc"}
-
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("papermate.api")
-
-
-def _frontend_build_dir() -> Path:
-    """배포 빌드 결과물(dist)의 위치를 반환합니다."""
-
-    return settings.frontend_build_dir
 
 
 def _register_routers(api: FastAPI) -> None:
@@ -55,29 +46,6 @@ def _register_routers(api: FastAPI) -> None:
     api.include_router(project_files_router)
 
 
-def _mount_frontend(api: FastAPI, build_dir: Path) -> None:
-    """프론트엔드 빌드 파일이 있으면 FastAPI가 함께 서빙하도록 연결합니다."""
-
-    if not build_dir.exists():
-        return
-
-    assets_dir = build_dir / "assets"
-    if assets_dir.exists():
-        api.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-
-    @api.get("/{full_path:path}", include_in_schema=False, response_model=None)
-    async def serve_react_app(full_path: str):
-        # React Router 주소로 새로고침해도 index.html을 돌려줘야 SPA가 살아납니다.
-        if full_path in RESERVED_FRONTEND_PATHS:
-            return {"message": "API documentation is disabled."}
-
-        requested_file = build_dir / full_path
-        if full_path and requested_file.is_file():
-            return FileResponse(requested_file)
-
-        return FileResponse(build_dir / "index.html")
-
-
 app = FastAPI(
     title=settings.app_name,
     debug=settings.debug,
@@ -91,6 +59,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -177,6 +146,3 @@ async def readiness_check() -> dict[str, Any]:
     if not db_status.get("connected"):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=db_status)
     return {"status": "ready", "environment": settings.app_env, **db_status}
-
-
-_mount_frontend(app, _frontend_build_dir())

@@ -25,6 +25,33 @@ docs/       워크플로우 다이어그램, 설계 문서, 회의 기록
 
 AI 문서 파싱과 질의응답 모델 처리는 현재 백엔드 서비스 모듈에서 관리하며, 필요하면 추후 `ai-service/`로 분리할 수 있습니다.
 
+프론트엔드 실행
+---------------
+
+```bash
+npm install
+npm run dev
+```
+
+로컬 개발 서버는 `http://localhost:3000`에서 실행되고, 기본 API 주소는 `http://localhost:8000`입니다. 다른 백엔드 주소를 쓰려면 `frontend/.env.example`을 `frontend/.env`로 복사한 뒤 `VITE_API_BASE_URL`을 수정합니다.
+
+프론트엔드 배포
+---------------
+
+Vercel 프로젝트의 Root Directory를 `frontend`로 설정합니다. `frontend/vercel.json`이 빌드 명령과 SPA 라우팅 rewrite를 제공합니다.
+
+Vercel 환경 변수:
+
+- `VITE_API_BASE_URL`: EC2 백엔드 공개 주소. 예: `https://api.example.com`
+- `VITE_GOOGLE_CLIENT_ID`: Google OAuth Client ID
+- `VITE_GOOGLE_ALLOWED_ORIGINS`: Vercel 프론트 주소
+
+로컬에서 배포 빌드를 확인할 때는 아래 명령을 사용합니다.
+
+```bash
+npm run build
+```
+
 파트별 환경 설정 가이드
 -----------------------
 
