@@ -5,7 +5,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FiBarChart2, FiChevronLeft, FiChevronRight, FiFileText, FiGrid, FiImage, FiPaperclip, FiRefreshCcw } from 'react-icons/fi';
+import { FiChevronLeft, FiChevronRight, FiFileText, FiGrid, FiImage, FiPaperclip, FiRefreshCcw } from 'react-icons/fi';
 import {
   AiRow,
   BottomPromptInput,
@@ -31,16 +31,21 @@ import {
   getRecentConversationsKey,
   readJson,
   SHARED_PROJECTS_KEY,
+  upsertSharedProjectIndex,
   writeJson,
 } from '../utils/storageKeys';
 
 const MAX_PROJECTS = 10;
 const MAX_VISUALS = 10;
 const MAX_RECENT_CONVERSATIONS = 50;
+const MAX_SUGGESTED_FOLLOWUP_DEPTH = 3;
 
 const visualStorageKinds = new Set(['table', 'graph', 'image', 'chart']);
 const isVisualStorageItem = (visual) => visualStorageKinds.has(visual?.kind) || visualStorageKinds.has(visual?.type);
 const normalizeVisualId = (id) => String(id || '').replace(/^(thread-|visual-|saved-)+/, '');
+const isSuggestedVisualQuestion = (question = '') => String(question || '').includes('추천 시각화');
+const suggestionChipClass = (question = '') =>
+  `suggested-chip${isSuggestedVisualQuestion(question) ? ' visual' : ' related'}`;
 
 const createInviteCode = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -74,6 +79,8 @@ const mergeUniqueFiles = (...fileGroups) => {
 const isUploadableFile = (file) =>
   (typeof File !== 'undefined' && file instanceof File) ||
   (typeof Blob !== 'undefined' && file instanceof Blob);
+const isCompareQuestion = (question = '') =>
+  /비교|차이|공통점|다른\s*문서|두\s*문서|여러\s*문서|전체\s*문서|모든\s*문서|compare|difference/i.test(String(question || ''));
 
 const SOURCE_FILE_DB = 'papermate-source-files';
 const SOURCE_FILE_STORE = 'sourceFiles';
@@ -216,6 +223,8 @@ const toStoredThread = (messages) =>
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
       savedAt: message.savedAt,
+      suggestedQuestions: message.suggestedQuestions,
+      suggestedDepth: message.suggestedDepth,
     }));
 
 const hasVisualPayload = (message: any = {}) => {
@@ -898,7 +907,9 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     setIsAnalyzing(true);
 
     try {
-      const response = await analysisAPI.createVisual(visualType, requestFiles, analysisText);
+      const response = await analysisAPI.createVisual(visualType, requestFiles, analysisText, {
+        llmProvider,
+      });
       const visual = response.data?.visual || response.data;
       const visualAsset = {
         ...visual,
@@ -1075,25 +1086,33 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     setCurrentProject((prev) => (prev?.id === syncedProject.id ? { ...prev, ...syncedProject } : prev));
   };
 
-  const handleSendMessage = async (filesToSend = files, overrideQuestion = '') => {
+  const handleSendMessage = async (filesToSend = files, overrideQuestion = '', options: any = {}) => {
     const nextQuestion = overrideQuestion || promptText.trim();
+    const suggestedDepth = Math.max(0, Number(options.suggestedDepth || 0));
     const newFiles = [...filesToSend];
     const activeUploadFiles = activeFiles.filter(isUploadableFile);
     const pendingFiles = newFiles.length > 0 ? mergeUniqueFiles(activeFiles, newFiles) : [...activeFiles];
-    const requestFiles = newFiles.length > 0
-      ? mergeUniqueFiles(activeUploadFiles, newFiles.filter(isUploadableFile))
-      : activeUploadFiles;
+    const question = nextQuestion || '업로드한 문서를 요약해줘';
+    const compareMode = isCompareQuestion(question);
+    const selectedPreviewFile = selectedSourceFile && pendingFiles.some((file) => getFileKey(file) === getFileKey(selectedSourceFile))
+      ? selectedSourceFile
+      : null;
+    const selectedFileAfterUpload = selectedPreviewFile || newFiles[0] || pendingFiles[0];
+    const selectedFileKey = selectedFileAfterUpload ? getFileKey(selectedFileAfterUpload) : '';
+    const selectedUploadFile = pendingFiles.find((file) => getFileKey(file) === selectedFileKey && isUploadableFile(file));
+    const requestFiles = compareMode
+      ? (newFiles.length > 0 ? pendingFiles.filter(isUploadableFile) : activeUploadFiles)
+      : (selectedUploadFile ? [selectedUploadFile] : []);
     const hasNewUpload = newFiles.length > 0;
     if (!nextQuestion && pendingFiles.length === 0) {
       window.alert('질문을 입력하거나 파일을 선택해주세요.');
       return;
     }
 
-    const question = nextQuestion || '업로드한 문서를 요약해줘';
     setPromptText('');
     if (hasNewUpload) {
       setActiveFiles(pendingFiles);
-      setSelectedSourceKey(selectedSourceKey || getFileKey(newFiles[0] || pendingFiles[0]));
+      setSelectedSourceKey(selectedFileKey);
       setFiles([]);
     }
 
@@ -1101,7 +1120,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     const fileMessage = hasNewUpload
       ? { id: `uploaded-files-${Date.now()}`, role: 'system', text: `업로드된 파일: ${uploadedFileNames}`, createdAt: nowIso() }
       : null;
-    const userMessage = { id: `user-${Date.now()}`, role: 'user', text: question, createdAt: nowIso() };
+    const userMessage = { id: `user-${Date.now()}`, role: 'user', text: question, createdAt: nowIso(), suggestedDepth };
     const messagesWithQuestion = [...messages, ...(fileMessage ? [fileMessage] : []), userMessage];
     const isNewConversation = recentConversationIdRef.current.startsWith('conversation-');
 
@@ -1140,10 +1159,13 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     setIsAnalyzing(true);
 
     try {
+      const analysisHistory = hasNewUpload ? '' : getLatestAnalysisText(messages);
       const response = await analysisAPI.chat(question, requestFiles, {
         conversationId: recentConversationIdRef.current,
         llmProvider,
-      }, getLatestAnalysisText(messages));
+        selectedSourceName: compareMode ? '' : selectedUploadFile?.name || selectedFileAfterUpload?.name || '',
+        compareMode,
+      }, analysisHistory);
       const providerLabelMap: Record<string, string> = {
         openai: 'OpenAI',
         gemini: 'Gemini',
@@ -1158,7 +1180,9 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       const successMessage = hasNewUpload
         ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${uploadedFileNames}`, createdAt: nowIso() }
         : null;
-      const suggestedQuestions = response.data?.suggested_questions || [];
+      const suggestedQuestions = suggestedDepth >= MAX_SUGGESTED_FOLLOWUP_DEPTH
+        ? []
+        : (response.data?.suggested_questions || []);
 
       let parsedAssetData = null;
       let isJsonAsset = false;
@@ -1185,6 +1209,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
           title: parsedAssetData.title || (question.includes('차트') || question.includes('표') || question.includes('비교') || question.includes('그래프') ? question : '데이터 시각화'),
           saved: false,
           createdAt: nowIso(),
+          suggestedDepth,
           suggestedQuestions,
         };
         messagesWithAnswer.push(newVisual);
@@ -1196,7 +1221,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
           return visualId && !prev.includes(visualId) ? [visualId, ...prev] : prev;
         });
       } else {
-        messagesWithAnswer.push({ id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}`, createdAt: nowIso(), suggestedQuestions });
+        messagesWithAnswer.push({ id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}`, createdAt: nowIso(), suggestedDepth, suggestedQuestions });
       }
 
       setMessages(messagesWithAnswer);
@@ -1207,7 +1232,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       if (isNewConversation) {
         analysisAPI.generateChatTitle(question, {
           llmProvider,
-        }, getLatestAnalysisText(messages)).then(res => {
+        }, analysisHistory).then(res => {
           if (res.data?.title) {
             upsertRecentConversation(messagesWithAnswer, question, pendingFiles, res.data.title);
             // 사이드바 등 다른 컴포넌트가 최신 목록을 알 수 있도록 이벤트 발송
@@ -1310,13 +1335,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
         : []),
     ].slice(0, MAX_RECENT_CONVERSATIONS));
 
-    const sharedProjects = readJson(SHARED_PROJECTS_KEY, []);
-    writeJson(SHARED_PROJECTS_KEY, [
-      projectRecord,
-      ...(Array.isArray(sharedProjects)
-        ? sharedProjects.filter((project) => project.id !== projectRecord.id && project.inviteCode !== projectRecord.inviteCode)
-        : []),
-    ].slice(0, 100));
+    upsertSharedProjectIndex(projectRecord);
 
     await saveSourceFiles([projectRecord.id, recentConversationIdRef.current], activeFiles);
 
@@ -1748,8 +1767,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
                           {message.suggestedQuestions.map((q, idx) => (
                             <button 
                               key={idx} 
-                              className="suggested-chip" 
-                              onClick={() => handleSendMessage(files, q)}
+                              className={suggestionChipClass(q)}
+                              onClick={() => handleSendMessage(files, q, { suggestedDepth: (message.suggestedDepth || 0) + 1 })}
                             >
                               {q}
                             </button>
@@ -1769,8 +1788,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
                           {message.suggestedQuestions.map((q: string, idx: number) => (
                             <button 
                               key={idx} 
-                              className="suggested-chip" 
-                              onClick={() => handleSendMessage(files, q)}
+                              className={suggestionChipClass(q)}
+                              onClick={() => handleSendMessage(files, q, { suggestedDepth: (message.suggestedDepth || 0) + 1 })}
                             >
                               {q}
                             </button>
@@ -1829,10 +1848,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
                     <button type="button" role="menuitem" onClick={() => handleCreateVisualFromMenu('image')}>
                       <FiImage aria-hidden="true" />
                       <span>이미지 파일 추출</span>
-                    </button>
-                    <button type="button" role="menuitem" onClick={() => handleCreateVisualFromMenu('graph')}>
-                      <FiBarChart2 aria-hidden="true" />
-                      <span>그래프 만들기</span>
                     </button>
                     <button type="button" role="menuitem" onClick={() => handleCreateVisualFromMenu('table')}>
                       <FiGrid aria-hidden="true" />

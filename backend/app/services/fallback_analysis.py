@@ -16,55 +16,111 @@ from app.services.analysis.answer_builder import (
 )
 from app.services.analysis.chunk_ranker import rank_relevant_chunks
 from app.services.analysis.query_analyzer import _intent_intro, _intent_label, _question_intent
+from app.services.analysis.scoring_config import CHUNK_RANK_WEIGHTS
 from app.services.analysis.topic_modeling import extract_topics
 
 
+def _focused_relevant_text(relevant_chunks: list[dict], fallback_text: str) -> str:
+    if not relevant_chunks:
+        return fallback_text
+
+    top_score = float(relevant_chunks[0].get("score") or 0)
+    if top_score <= 0:
+        focused_chunks = relevant_chunks[:1]
+    else:
+        min_score = top_score * CHUNK_RANK_WEIGHTS.focused_score_ratio
+        focused_chunks = [
+            chunk
+            for chunk in relevant_chunks
+            if float(chunk.get("score") or 0) >= min_score
+        ] or relevant_chunks[:1]
+
+    return "\n".join(chunk["text"] for chunk in focused_chunks if chunk.get("text")) or fallback_text
+
+
+def _analysis_payload(
+    *,
+    summary: str,
+    intent: str,
+    keywords: list[str] | None = None,
+    metrics: list[str] | None = None,
+    topics: list[dict] | None = None,
+    document_keywords: list[str] | None = None,
+    document_metrics: list[str] | None = None,
+    document_topics: list[dict] | None = None,
+    documents: list[dict] | None = None,
+    relevant_chunks: list[dict] | None = None,
+) -> dict:
+    return {
+        "summary": summary,
+        "intent": intent,
+        "keywords": keywords or [],
+        "metrics": metrics or [],
+        "topics": topics or [],
+        "document_keywords": document_keywords or [],
+        "document_metrics": document_metrics or [],
+        "document_topics": document_topics or [],
+        "documents": documents or [],
+        "relevant_chunks": relevant_chunks or [],
+    }
+
+
+def _fallback_response(question: str, payload: dict) -> dict:
+    return {
+        "answer": build_concise_fallback_answer(question, payload),
+        **payload,
+    }
+
+
 def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
-    cleaned_docs = [
-        {
-            **doc,
-            "text": _clean_text(doc.get("text", "")),
-        }
-        for doc in extracted_docs
-        if _clean_text(doc.get("text", ""))
-    ]
+    cleaned_docs = []
+    for doc in extracted_docs:
+        cleaned_text = _clean_text(doc.get("text", ""))
+        if cleaned_text:
+            cleaned_docs.append({**doc, "text": cleaned_text})
+
     combined_text = "\n".join(doc["text"] for doc in cleaned_docs if doc["text"])
     intent = _question_intent(question)
-    relevant_chunks = rank_relevant_chunks(question, cleaned_docs, 6)
-    relevant_text = "\n".join(chunk["text"] for chunk in relevant_chunks) or combined_text
-    summary_points = _extractive_summary(relevant_text, question, 4)
-    terms = _frequent_terms(combined_text)
-    metrics = _metric_candidates(combined_text)
-    topics = extract_topics(combined_text)
 
     if not combined_text.strip():
         summary = (
             "업로드 파일은 받았지만 추출 가능한 본문 텍스트가 거의 없습니다. "
             "이미지라면 OCR 설치가 필요할 수 있고, 구형 HWP는 HWPX 변환이 더 안정적입니다."
         )
+        return _fallback_response(
+            question,
+            _analysis_payload(summary=summary, intent=intent),
+        )
+
+    relevant_chunks = rank_relevant_chunks(question, cleaned_docs, 6)
+    relevant_text = _focused_relevant_text(relevant_chunks, combined_text)
+    summary_points = _extractive_summary(relevant_text, question, 4)
+    terms = _frequent_terms(relevant_text)
+    metrics = _metric_candidates(relevant_text)
+    topics = extract_topics(relevant_text)
+    if relevant_text == combined_text:
+        document_terms = terms
+        document_metrics = metrics
+        document_topics = topics
     else:
-        summary = " ".join(summary_points) or combined_text[:600]
+        document_terms = _frequent_terms(combined_text)
+        document_metrics = _metric_candidates(combined_text)
+        document_topics = extract_topics(combined_text)
+    summary = " ".join(summary_points) or combined_text[:600]
 
-    comparison = [_doc_brief(doc) for doc in cleaned_docs]
-
-    return {
-        "answer": build_concise_fallback_answer(question, {
-            "summary": summary,
-            "intent": intent,
-            "keywords": terms,
-            "metrics": metrics,
-            "topics": topics,
-            "documents": comparison,
-            "relevant_chunks": relevant_chunks,
-        }),
-        "summary": summary,
-        "intent": intent,
-        "keywords": terms,
-        "metrics": metrics,
-        "topics": topics,
-        "documents": comparison,
-        "relevant_chunks": relevant_chunks,
-    }
+    payload = _analysis_payload(
+        summary=summary,
+        intent=intent,
+        keywords=terms,
+        metrics=metrics,
+        topics=topics,
+        document_keywords=document_terms,
+        document_metrics=document_metrics,
+        document_topics=document_topics,
+        documents=[_doc_brief(doc) for doc in cleaned_docs],
+        relevant_chunks=relevant_chunks,
+    )
+    return _fallback_response(question, payload)
 
 
 def build_concise_fallback_answer(question: str, fallback_answer: dict) -> str:

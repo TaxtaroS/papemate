@@ -17,6 +17,76 @@ const isQuotaExceededError = (error) =>
   error?.code === 22 ||
   String(error?.message || '').includes('exceeded the quota');
 
+const MAX_STORED_TEXT_LENGTH = 40000;
+const MAX_STORED_DATA_URL_LENGTH = 120000;
+
+const trimText = (text, limit = MAX_STORED_TEXT_LENGTH) =>
+  typeof text === 'string' && text.length > limit ? text.slice(0, limit) : text;
+
+const stripLargeDataUrls = (value) => {
+  if (Array.isArray(value)) return value.map(stripLargeDataUrls);
+  if (!value || typeof value !== 'object') return trimText(value);
+
+  const next = {};
+  Object.entries(value).forEach(([key, entry]) => {
+    if (key === 'dataUrl' && typeof entry === 'string') {
+      if (entry.length <= MAX_STORED_DATA_URL_LENGTH) {
+        next[key] = entry;
+      } else {
+        next.hasImage = true;
+        next.hasDataUrl = true;
+      }
+      return;
+    }
+    next[key] = stripLargeDataUrls(entry);
+  });
+  return next;
+};
+
+const compactThreadItems = (thread) =>
+  Array.isArray(thread)
+    ? thread.slice(-80).map((item) => stripLargeDataUrls({
+        ...item,
+        text: trimText(item?.text),
+      }))
+    : [];
+
+const compactLocalProject = (project) => stripLargeDataUrls({
+  ...project,
+  files: Array.isArray(project?.files) ? project.files.slice(0, 30) : [],
+  sourceProjects: Array.isArray(project?.sourceProjects) ? project.sourceProjects.slice(0, 8) : [],
+  visuals: Array.isArray(project?.visuals) ? project.visuals.slice(0, 10) : [],
+  thread: compactThreadItems(project?.thread),
+  discussionImages: Array.isArray(project?.discussionImages)
+    ? project.discussionImages.slice(0, 30).map(({ dataUrl, ...image }) => ({
+        ...image,
+        hasImage: Boolean(dataUrl || image.hasImage),
+      }))
+    : [],
+});
+
+const compactLocalValue = (key, value) => {
+  if (key === SHARED_PROJECTS_KEY) return compactSharedProjects(value);
+  if (key.startsWith(BASE_PROJECTS_KEY)) {
+    return (Array.isArray(value) ? value : []).map(compactLocalProject).slice(0, 10);
+  }
+  if (key.startsWith(BASE_RECENT_CONVERSATIONS_KEY)) {
+    return (Array.isArray(value) ? value : []).slice(0, 50).map((item) => stripLargeDataUrls({
+      ...item,
+      thread: compactThreadItems(item?.thread),
+      files: Array.isArray(item?.files) ? item.files.slice(0, 30) : [],
+    }));
+  }
+  if (key.startsWith(ACTIVE_ANALYSIS_SESSION_KEY)) {
+    return stripLargeDataUrls({
+      ...value,
+      thread: compactThreadItems(value?.thread),
+      files: Array.isArray(value?.files) ? value.files.slice(0, 30) : [],
+    });
+  }
+  return stripLargeDataUrls(value);
+};
+
 // 초대코드 검색용 전역 인덱스에는 프로젝트 원본 전체를 넣지 않습니다.
 // 이미지 dataUrl 같은 큰 값은 localStorage 한도를 빨리 넘기므로, 공유 검색과 카드 복원에 필요한 가벼운 정보만 남깁니다.
 export const normalizeInviteCode = (code = '') => String(code || '').trim();
@@ -34,7 +104,7 @@ const compactVisualItems = (items) =>
         mimeType: item.mimeType,
         ocrText: item.ocrText,
         previewText: item.previewText,
-        dataUrl: item.dataUrl,
+        hasImage: Boolean(item.dataUrl || item.hasImage),
       }))
     : undefined;
 
@@ -172,9 +242,14 @@ export const writeJson = (key, value) => {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (error) {
-    if (isQuotaExceededError(error) && key === SHARED_PROJECTS_KEY) {
-      localStorage.removeItem(key);
-      localStorage.setItem(key, JSON.stringify(compactSharedProjects(value)));
+    if (isQuotaExceededError(error)) {
+      try {
+        localStorage.removeItem(key);
+        localStorage.setItem(key, JSON.stringify(compactLocalValue(key, value)));
+      } catch (retryError) {
+        console.warn('PaperMate storage write skipped after compaction:', key, retryError);
+        return false;
+      }
     } else {
       console.warn('PaperMate storage write skipped:', key, error);
       return false;

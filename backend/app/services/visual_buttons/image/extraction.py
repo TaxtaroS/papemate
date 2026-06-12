@@ -16,12 +16,68 @@ from typing import Any
 
 
 MAX_IMAGE_INPUT_BYTES = 1_500_000
-MAX_OCR_CHARS = 1600
+MAX_OCR_CHARS = 2600
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+OCR_CONFIGS = (
+    "--oem 3 --psm 6",
+    "--oem 3 --psm 11",
+)
 
 
 def _clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _clean_ocr_text(text: str) -> str:
+    lines = []
+    seen = set()
+    for raw_line in str(text or "").replace("\x0c", "\n").splitlines():
+        line = re.sub(r"[ \t]+", " ", raw_line).strip(" \t\r\n|")
+        if len(line) <= 1:
+            continue
+        compact = re.sub(r"\s+", "", line)
+        if compact in seen:
+            continue
+        seen.add(compact)
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _ocr_quality(text: str) -> tuple[int, int, int]:
+    cleaned = _clean_ocr_text(text)
+    hangul = len(re.findall(r"[가-힣]", cleaned))
+    alnum = len(re.findall(r"[0-9A-Za-z가-힣]", cleaned))
+    rows = len([line for line in cleaned.splitlines() if line.strip()])
+    return alnum + hangul * 2 + rows * 6, hangul, len(cleaned)
+
+
+def _ocr_variants(image):
+    try:
+        from PIL import Image, ImageFilter, ImageOps
+    except ModuleNotFoundError:
+        return [image]
+
+    variants = [image]
+    try:
+        base = ImageOps.exif_transpose(image).convert("RGB")
+        width, height = base.size
+        scale = 3 if max(width, height) < 900 else 2 if max(width, height) < 1600 else 1
+        if scale > 1:
+            resample = getattr(getattr(Image, "Resampling", object), "LANCZOS", 1)
+            base = base.resize((width * scale, height * scale), resample)
+
+        gray = ImageOps.grayscale(base)
+        enhanced = ImageOps.autocontrast(gray).filter(ImageFilter.SHARPEN)
+        variants.extend(
+            [
+                enhanced,
+                enhanced.point(lambda value: 255 if value > 180 else 0),
+            ]
+        )
+    except Exception:
+        return variants
+
+    return variants
 
 
 def _mime_type(name: str, image_format: str | None = None) -> str:
@@ -65,20 +121,115 @@ def _image_quality(image) -> tuple[bool, str]:
     return True, "content"
 
 
-def _ocr_image(image) -> str:
+def _table_like_text_from_ocr_data(image, pytesseract) -> str:
+    try:
+        data = pytesseract.image_to_data(
+            image,
+            lang="kor+eng",
+            config="--oem 3 --psm 6",
+            output_type=pytesseract.Output.DICT,
+            timeout=8,
+        )
+    except Exception:
+        return ""
+
+    words = []
+    for index, text in enumerate(data.get("text", [])):
+        word = _clean_text(text)
+        if not word:
+            continue
+        try:
+            conf = float(data.get("conf", [])[index])
+        except Exception:
+            conf = -1
+        if conf < 20:
+            continue
+        words.append(
+            {
+                "text": word,
+                "left": int(data.get("left", [0])[index]),
+                "top": int(data.get("top", [0])[index]),
+                "height": int(data.get("height", [0])[index]),
+            }
+        )
+
+    if len(words) < 6:
+        return ""
+
+    words.sort(key=lambda item: (item["top"], item["left"]))
+    rows: list[list[dict]] = []
+    for word in words:
+        center_y = word["top"] + word["height"] / 2
+        matched_row = None
+        for row in rows:
+            row_center = sum(item["top"] + item["height"] / 2 for item in row) / len(row)
+            if abs(center_y - row_center) <= max(12, word["height"] * 0.8):
+                matched_row = row
+                break
+        if matched_row is None:
+            rows.append([word])
+        else:
+            matched_row.append(word)
+
+    table_rows = []
+    table_tokens = []
+    for row in rows:
+        row = sorted(row, key=lambda item: item["left"])
+        if len(row) < 2:
+            continue
+        table_tokens.extend(item["text"] for item in row)
+        table_rows.append(" | ".join(item["text"] for item in row))
+
+    if len(table_rows) < 2:
+        return ""
+    if table_tokens:
+        single_char_ratio = sum(1 for token in table_tokens if len(token) <= 1) / len(table_tokens)
+        numeric_ratio = sum(1 for token in table_tokens if re.search(r"\d", token)) / len(table_tokens)
+        if single_char_ratio > 0.48 and numeric_ratio < 0.35:
+            return ""
+    return "\n".join(table_rows[:16])
+
+
+def _ocr_image(image) -> tuple[str, str]:
     try:
         import pytesseract
     except ModuleNotFoundError:
-        return ""
+        return "", ""
+
+    best_text = ""
+    best_score = (-1, -1, -1)
+    best_variant = image
+    table_text = ""
+    for variant in _ocr_variants(image):
+        for config in OCR_CONFIGS:
+            try:
+                candidate = _clean_ocr_text(
+                    pytesseract.image_to_string(variant, lang="kor+eng", config=config, timeout=8)
+                )
+            except Exception:
+                continue
+            score = _ocr_quality(candidate)
+            if score > best_score:
+                best_score = score
+                best_text = candidate
+                best_variant = variant
 
     try:
-        return _clean_text(pytesseract.image_to_string(image, lang="kor+eng"))[:MAX_OCR_CHARS]
+        table_text = _table_like_text_from_ocr_data(best_variant, pytesseract)
     except Exception:
-        return ""
+        table_text = ""
+
+    if table_text and table_text not in best_text:
+        combined = f"{best_text}\n\n[표 OCR 후보]\n{table_text}".strip()
+    else:
+        combined = best_text
+    return combined[:MAX_OCR_CHARS], table_text[:MAX_OCR_CHARS]
 
 
 def _visual_kind(name: str, ocr_text: str, width: int = 0, height: int = 0) -> str:
     text = f"{name} {ocr_text}".lower()
+    if re.search(r"그림|개념도|도식|diagram|flow|arrow|화살표", text):
+        return "diagram_image"
     if re.search(r"표|table|구분|합계|총계", text):
         return "table_image"
     if re.search(r"그래프|차트|chart|graph|axis|legend|추이|증감|비율|%", text):
@@ -107,7 +258,7 @@ def _image_asset(
         width, height = image.size
         image_format = image.format or "PNG"
         mime_type = _mime_type(name, image_format)
-        ocr_text = _ocr_image(image)
+        ocr_text, table_text = _ocr_image(image)
     except Exception:
         return None
 
@@ -123,6 +274,8 @@ def _image_asset(
         parts.append(f"OCR 텍스트: {ocr_text}")
     else:
         parts.append("OCR 텍스트: 추출되지 않음")
+    if table_text:
+        parts.append(f"표 구조 후보: {table_text}")
 
     asset = {
         "id": sha1(image_bytes[:4096] + name.encode("utf-8", errors="ignore")).hexdigest()[:16],
@@ -135,6 +288,7 @@ def _image_asset(
         "height": height,
         "mime_type": mime_type,
         "ocr_text": ocr_text,
+        "table_text": table_text,
         "text": " | ".join(parts),
     }
     if include_data_url:

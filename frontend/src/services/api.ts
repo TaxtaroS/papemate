@@ -9,6 +9,8 @@ interface AnalysisChatOptions {
   openaiApiKey?: string;
   googleApiKey?: string;
   llmProvider?: string;
+  selectedSourceName?: string;
+  compareMode?: boolean;
 }
 
 const isBrowserFile = (file: unknown): file is File | Blob =>
@@ -137,6 +139,8 @@ export const analysisAPI = {
     formData.append('question', question);
     if (options.conversationId) formData.append('conversation_id', options.conversationId);
     formData.append('llm_provider', options.llmProvider || 'auto');
+    if (options.selectedSourceName) formData.append('selected_source_name', options.selectedSourceName);
+    formData.append('compare_mode', options.compareMode ? 'true' : 'false');
     if (options.openaiApiKey) formData.append('openai_api_key', options.openaiApiKey);
     if (options.googleApiKey) formData.append('google_api_key', options.googleApiKey);
     if (analysisText) formData.append('analysis_text', analysisText);
@@ -164,7 +168,9 @@ export const analysisAPI = {
   createVisual: (type: string, files: File[], analysisText = '', options: AnalysisChatOptions = {}) => {
     const formData = new FormData();
     formData.append('analysis_text', analysisText);
+    formData.append('llm_provider', options.llmProvider || 'auto');
     if (options.openaiApiKey) formData.append('openai_api_key', options.openaiApiKey);
+    if (options.googleApiKey) formData.append('google_api_key', options.googleApiKey);
     files.filter(isBrowserFile).forEach((file) => {
       const filename = file instanceof File ? file.name : 'upload-file';
       formData.append('files', file, filename);

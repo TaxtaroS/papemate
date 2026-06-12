@@ -1,5 +1,7 @@
 # 초보자 안내: 문서 파일 업로드와 분석 요청을 처리하는 API 라우터입니다.
 
+import logging
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.core.uploads import read_upload_content, validate_upload_count
@@ -12,6 +14,51 @@ from models.schemas import AnalysisResponse
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
 DOCUMENT_SESSION_CACHE: dict[str, list[dict]] = {}
+logger = logging.getLogger(__name__)
+
+
+def _normalize_name(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _is_truthy(value: str) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _filter_selected_docs(docs: list[dict], selected_source_name: str, compare_mode: bool) -> list[dict]:
+    if compare_mode or not selected_source_name:
+        return docs
+
+    selected = _normalize_name(selected_source_name)
+    matched = [
+        doc for doc in docs
+        if _normalize_name(doc.get("filename", "")) == selected
+    ]
+    if not matched:
+        logger.warning(
+            "Selected source document was not found; refusing to fall back to first document. selected=%r available=%r",
+            selected_source_name,
+            [doc.get("filename", "") for doc in docs],
+        )
+    return matched
+
+
+def _merge_cached_docs(existing_docs: list[dict], new_docs: list[dict]) -> list[dict]:
+    merged = list(existing_docs or [])
+    for doc in new_docs or []:
+        filename = _normalize_name(doc.get("filename", ""))
+        if not filename:
+            merged.append(doc)
+            continue
+        replaced = False
+        for index, existing in enumerate(merged):
+            if _normalize_name(existing.get("filename", "")) == filename:
+                merged[index] = doc
+                replaced = True
+                break
+        if not replaced:
+            merged.append(doc)
+    return merged
 
 
 # 프론트엔드 Analysis.js의 analysisAPI.chat(question, files)가 호출하는 엔드포인트입니다.
@@ -27,14 +74,21 @@ async def analyze_chat(
     google_api_key: str = Form(""),
     files: list[UploadFile] = File(default=[]),
     analysis_text: str = Form(""),
+    selected_source_name: str = Form(""),
+    compare_mode: str = Form("false"),
 ):
     analysis_text = analysis_text.strip()
     session_key = conversation_id.strip()
+    should_compare = _is_truthy(compare_mode)
     if files:
         validate_upload_count(files)
         extracted_docs = []
     elif session_key and session_key in DOCUMENT_SESSION_CACHE:
-        extracted_docs = DOCUMENT_SESSION_CACHE[session_key]
+        extracted_docs = _filter_selected_docs(
+            DOCUMENT_SESSION_CACHE[session_key],
+            selected_source_name,
+            should_compare,
+        )
     elif analysis_text:
         extracted_docs = []
     else:
@@ -57,16 +111,11 @@ async def analyze_chat(
     # fallback_answer는 OpenAI 키가 없어도 항상 만들 수 있는 기본 분석입니다.
     # 키워드와 중요 문장 후보를 Python 로직으로 추출합니다.
     if files and session_key and extracted_docs:
-        DOCUMENT_SESSION_CACHE[session_key] = extracted_docs
-
-    if analysis_text and not extracted_docs:
-        extracted_docs.append(
-            {
-                "filename": "이전 분석 내용",
-                "format": "analysis_text",
-                "text": analysis_text,
-            }
+        DOCUMENT_SESSION_CACHE[session_key] = _merge_cached_docs(
+            DOCUMENT_SESSION_CACHE.get(session_key, []),
+            extracted_docs,
         )
+        extracted_docs = _filter_selected_docs(extracted_docs, selected_source_name, should_compare)
 
     return run_analysis_pipeline(
         question=question,

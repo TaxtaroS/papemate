@@ -17,6 +17,7 @@ from .fallback_analysis import (
 from .analysis.grounding import validate_grounding
 from .llm.service import analyze_with_llm
 from .translation import translate_analysis_payload
+from .web_search import search_results_to_docs, wants_web_search, web_search
 
 
 def _is_visual_request(question: str) -> bool:
@@ -124,6 +125,8 @@ def _clean_evidence_text(text: str) -> str:
 def _assistant_intro(question: str, intent: str | None = None) -> str:
     labels = {
         "summary": "핵심 내용과 중요도",
+        "analysis": "상세 분석과 해석",
+        "importance": "중요도와 우선순위",
         "metrics": "동향과 수치 근거",
         "compare": "비교와 차이점",
         "extract": "중요 문장 발췌",
@@ -134,6 +137,51 @@ def _assistant_intro(question: str, intent: str | None = None) -> str:
     if question:
         return f"질문하신 내용은 {label}에 관한 것으로 보입니다. 제가 문서에서 근거를 뽑아 정리해볼게요."
     return "업로드한 문서를 기준으로 핵심 내용을 먼저 정리해볼게요."
+
+
+def _topic_label(fallback_answer: dict) -> str:
+    topics = fallback_answer.get("topics") or fallback_answer.get("document_topics") or []
+    for topic in topics:
+        label = str(topic.get("label") or "").strip()
+        if label:
+            korean_count = len(re.findall(r"[가-힣]", label))
+            english_count = len(re.findall(r"[A-Za-z]", label))
+            if korean_count or english_count < 8:
+                return label[:24]
+
+    keywords = fallback_answer.get("keywords") or fallback_answer.get("document_keywords") or []
+    meaningful = [
+        str(keyword).strip()
+        for keyword in keywords
+        if str(keyword).strip() and re.search(r"[가-힣]", str(keyword))
+    ]
+    if meaningful:
+        return ", ".join(meaningful[:2])[:24]
+
+    return "문서 주요 내용"
+
+
+def _has_metric_evidence(fallback_answer: dict) -> bool:
+    return bool((fallback_answer.get("metrics") or []) or (fallback_answer.get("document_metrics") or []))
+
+
+def _local_suggested_questions(fallback_answer: dict) -> list[str]:
+    """LLM 없이도 문서 로컬 추출 결과만으로 후속 칩을 만듭니다."""
+
+    if not (fallback_answer.get("summary") or fallback_answer.get("relevant_chunks")):
+        return []
+
+    topic = _topic_label(fallback_answer)
+    metric_word = "수치 후보" if _has_metric_evidence(fallback_answer) else "핵심 항목"
+    visual_questions = [
+        f"[추천 시각화: 90점] 문서의 {metric_word}를 비교 막대 그래프 그려줘",
+        f"[추천 시각화: 85점] {topic} 관련 항목을 표로 정리해줘",
+    ]
+    related_questions = [
+        f"[연관 질문] 이 문서의 핵심 근거는 뭐야?",
+        f"[연관 질문] 이 문서에서 추가로 확인해야 할 {metric_word}는 뭐야?",
+    ]
+    return [*visual_questions, *related_questions]
 
 
 def _merge_llm_answer_with_evidence(question: str, llm_answer: str, fallback_answer: dict) -> str:
@@ -200,10 +248,16 @@ def _resolve_llm_provider_and_keys(
     env_google = settings.gemini_api_key or settings.google_api_key
 
     if selected == "openai":
+        if not request_openai and not env_openai and (request_google or env_google):
+            key_source = "request" if request_google else "env"
+            return "gemini", request_google or env_google, key_source, True
         key_source = "request" if request_openai else "env" if env_openai else "none"
         return "openai", request_openai or env_openai, key_source, key_source != "none"
 
     if selected in {"gemini", "google"}:
+        if not request_google and not env_google and (request_openai or env_openai):
+            key_source = "request" if request_openai else "env"
+            return "openai", request_openai or env_openai, key_source, True
         key_source = "request" if request_google else "env" if env_google else "none"
         return "gemini", request_google or env_google, key_source, key_source != "none"
 
@@ -232,8 +286,10 @@ def run_analysis_pipeline(
 
     uploaded_filenames = uploaded_filenames or []
     fallback_answer = build_analysis_answer(question, extracted_docs)
+    local_suggested_questions = _local_suggested_questions(fallback_answer)
     has_grounded_docs = any(str(doc.get("text", "")).strip() for doc in extracted_docs)
     is_visual_request = _is_visual_request(question)
+    web_docs = search_results_to_docs(web_search(question)) if has_grounded_docs and wants_web_search(question) else []
     selected_provider, resolved_key, llm_key_source, llm_key_received = _resolve_llm_provider_and_keys(
         llm_provider,
         openai_api_key,
@@ -268,7 +324,7 @@ def run_analysis_pipeline(
             "llm_error": None,
             "llm_key_received": False,
             "llm_key_source": "none",
-            "suggested_questions": [],
+            "suggested_questions": local_suggested_questions,
         })
 
     llm_answer = analyze_with_llm(
@@ -279,6 +335,7 @@ def run_analysis_pipeline(
         google_api_key=resolved_key if selected_provider == "gemini" else None,
         analysis_text=analysis_text,
         relevant_chunks=fallback_answer.get("relevant_chunks", []),
+        web_docs=web_docs,
     )
 
     if not llm_answer.get("llm_used"):
@@ -291,7 +348,7 @@ def run_analysis_pipeline(
             "llm_error": llm_answer.get("llm_error"),
             "llm_key_received": llm_key_received,
             "llm_key_source": llm_key_source,
-            "suggested_questions": llm_answer.get("suggested_questions", []),
+            "suggested_questions": llm_answer.get("suggested_questions", []) or local_suggested_questions,
         })
 
     visual_config = _extract_json_object(llm_answer["answer"]) if is_visual_request else None
@@ -314,21 +371,40 @@ def run_analysis_pipeline(
 
     grounding = validate_grounding(
         llm_answer["answer"],
-        extracted_docs,
+        [*extracted_docs, *web_docs],
         fallback_answer.get("relevant_chunks", []),
         fallback_answer.get("metrics", []),
     )
     if not grounding.get("passed"):
+        if not grounding.get("unsupported_numbers"):
+            return _with_korean_answer({
+                **fallback_answer,
+                "answer": _merge_llm_answer_with_evidence(question, llm_answer["answer"], fallback_answer),
+                "keywords": fallback_answer.get("keywords", []) or llm_answer.get("keywords", []),
+                "metrics": fallback_answer.get("metrics", []),
+                "topics": fallback_answer.get("topics", []),
+                "relevant_chunks": fallback_answer.get("relevant_chunks", []),
+                "intent": llm_answer.get("intent", fallback_answer.get("intent", "분석")),
+                "llm_used": True,
+                "llm_key_received": llm_key_received,
+                "llm_key_source": llm_key_source,
+                "provider": llm_answer.get("provider"),
+                "model": llm_answer.get("model"),
+                "llm_error": "문서 근거 점검에서 낮은 단어 일치도가 감지되어 관련 문서 구간을 함께 표시했습니다.",
+                "suggested_questions": llm_answer.get("suggested_questions", []) or local_suggested_questions,
+                "web_sources": web_docs,
+            })
+
         return _with_korean_answer({
             **fallback_answer,
-            "answer": _merge_llm_answer_with_evidence(question, llm_answer["answer"], fallback_answer),
-            "llm_used": True,
+            "answer": build_concise_fallback_answer(question, fallback_answer),
+            "llm_used": False,
             "provider": llm_answer.get("provider"),
             "model": llm_answer.get("model"),
-            "llm_error": "PaperMate가 문서 근거 점검에서 일부 낮은 일치도를 감지했습니다. 답변 아래 근거 구간을 함께 확인해주세요.",
+            "llm_error": "PaperMate가 LLM 답변에서 업로드 문서에 없는 수치나 표현을 감지해 문서 추출 결과만 표시했습니다.",
             "llm_key_received": llm_key_received,
             "llm_key_source": llm_key_source,
-            "suggested_questions": llm_answer.get("suggested_questions", []),
+            "suggested_questions": local_suggested_questions,
         })
 
     if visual_config:
@@ -362,4 +438,5 @@ def run_analysis_pipeline(
         "provider": llm_answer.get("provider"),
         "model": llm_answer.get("model"),
         "suggested_questions": llm_answer.get("suggested_questions", []),
+        "web_sources": web_docs,
     })

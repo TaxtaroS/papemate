@@ -16,7 +16,9 @@ router = APIRouter(prefix="/api/visuals", tags=["visuals"])
 async def create_visual(
     visual_type: str,
     analysis_text: str = Form(""),
+    llm_provider: str = Form("auto"),
     openai_api_key: str = Form(""),
+    google_api_key: str = Form(""),
     files: list[UploadFile] = File(default=[]),
 ):
     """분석 페이지의 표/그래프/이미지/마인드맵 버튼이 호출하는 생성 API입니다."""
@@ -42,6 +44,15 @@ async def create_visual(
         source_text = "업로드 문서 또는 분석 답변이 없어 기본 시각화 예시를 생성합니다."
 
     if visual_type == "table":
+        return {
+            "visual": creator(
+                extracted_docs,
+                source_text,
+                openai_api_key=openai_api_key.strip() or None,
+            )
+        }
+
+    if visual_type == "image":
         return {
             "visual": creator(
                 extracted_docs,

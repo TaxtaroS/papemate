@@ -98,7 +98,7 @@ def render_text_preview_pdf(filename: str, text: str, *, source_format: str = "d
 
     width, height = 1240, 1754
     margin_x, margin_y = 90, 88
-    body_top = 170
+    body_top = 178
     body_bottom = height - 90
     line_gap = 12
     title_font = _load_preview_font(36)
@@ -119,13 +119,7 @@ def render_text_preview_pdf(filename: str, text: str, *, source_format: str = "d
         draw = ImageDraw.Draw(page)
 
         draw.text((margin_x, margin_y), safe_filename, fill="#0f172a", font=title_font)
-        draw.text(
-            (margin_x, margin_y + 50),
-            f"{source_format} 파싱 기반 원본 미리보기",
-            fill="#64748b",
-            font=meta_font,
-        )
-        draw.line((margin_x, body_top - 22, width - margin_x, body_top - 22), fill="#dbe7f0", width=2)
+        draw.line((margin_x, body_top - 24, width - margin_x, body_top - 24), fill="#cbd5e1", width=2)
 
         y = body_top
         while line_index < total_lines and y + line_height <= body_bottom:

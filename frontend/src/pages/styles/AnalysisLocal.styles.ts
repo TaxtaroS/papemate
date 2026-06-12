@@ -17,7 +17,7 @@ export const MainLayout = styled.div`
 `;
 
 export const VisualPanel = styled.div<{ $libraryCollapsed?: boolean }>`
-  flex: 0 0 60%;
+  flex: 0 0 55%;
   min-width: 0;
   border-right: 1px solid #e2e8f0;
   padding: 12px;
@@ -761,6 +761,7 @@ export const VisualArtifact = styled.div`
 `;
 
 export const InviteCodePill = styled.button`
+  flex: 0 0 auto;
   min-height: 36px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -773,6 +774,7 @@ export const InviteCodePill = styled.button`
   cursor: copy;
 
   span {
+    flex: 0 0 auto;
     align-self: stretch;
     display: inline-flex;
     align-items: center;
@@ -784,11 +786,13 @@ export const InviteCodePill = styled.button`
   }
 
   strong {
-    min-width: 86px;
+    min-width: 98px;
     padding: 0 12px;
     font-family: monospace;
     font-size: 13px;
     color: #0f172a;
+    text-align: center;
+    white-space: nowrap;
   }
 
   &:hover {

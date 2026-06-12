@@ -10,9 +10,10 @@ from app.services.analysis.query_analyzer import (
     _compact_for_match,
     _expanded_query_terms,
     _question_wants_negative,
-    _sentence_query_overlap,
     _tokenize_terms,
 )
+from app.services.analysis.query_relevance import query_relevance_score
+from app.services.analysis.scoring_config import SENTENCE_RANK_WEIGHTS
 
 # 이 파일은 AI가 직접 동작하는 곳이 아니라, 추출된 텍스트를 답변 재료로 정리합니다.
 # 선택 사용 라이브러리:
@@ -21,6 +22,8 @@ from app.services.analysis.query_analyzer import (
 # - pykospacing: 띄어쓰기 보정. 설치되어 있고 텍스트가 너무 길지 않을 때만 사용합니다.
 
 MAX_SPACING_CHARS = 3000
+# Low-value sentence filtering limit. This is independent from chunk_ranker.CHUNK_SIZE.
+MAX_SENTENCE_CHARS = 900
 EXTRACTION_NOISE_PATTERN = re.compile(r"[\u0100-\u024f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
 BROKEN_GLYPH_PATTERN = re.compile(r"[\u00a1-\u02af\u2500-\u25ff\u2b00-\u2bff\ufffd]+")
 IMAGE_META_PATTERNS = (
@@ -32,11 +35,7 @@ FORMULA_NOISE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# 공백과 HTML 엔티티를 정리해 분석하기 쉬운 한 줄 텍스트로 만듭니다.
-def _clean_text(text: str) -> str:
-    text = unescape(text or "")
-    text = EXTRACTION_NOISE_PATTERN.sub(" ", text)
-    text = BROKEN_GLYPH_PATTERN.sub(" ", text)
+def _clean_hwp_artifacts(text: str) -> str:
     for pattern in IMAGE_META_PATTERNS:
         text = pattern.sub(" ", text)
     text = re.sub(r"\{[^\n]{0,260}(?:TIMES|over)[^\n]{0,260}\}", " ", text, flags=re.IGNORECASE)
@@ -44,24 +43,34 @@ def _clean_text(text: str) -> str:
     text = re.sub(r"(?:\{[^{}]{0,80}\}\s*){2,}", " ", text)
     text = re.sub(r"\b(?:TIMES|over)\b", " ", text, flags=re.IGNORECASE)
     text = re.sub(r"수식입니다", " ", text)
-    # 제어문자 제거
-    text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
 
     # HWP/HWPX 추출 시 남는 주석/각주 표기 '^3', '^3)', '(^5)' 등 제거
     # 의도치 않은 캐럿 표식만 제거하도록 숫자만 붙은 캐럿 패턴을 타깃으로 함
     text = re.sub(r"\^\s*\(?\d+\)?", " ", text)
     text = re.sub(r"\(\^\s*\d+\)", " ", text)
+    return text
 
+
+def _normalize_plain_text(text: str) -> str:
+    text = EXTRACTION_NOISE_PATTERN.sub(" ", text)
+    text = BROKEN_GLYPH_PATTERN.sub(" ", text)
+    # 제어문자 제거
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
     # 불필요한 단일 기호(중간점 등) 연속을 정리
     text = re.sub(r"[·•◦]+", " ", text)
-
     # HTML/공백 정리
     text = re.sub(r"\s+", " ", text)
     text = text.strip()
-
     # 남은 빈 괄호 제거
     text = re.sub(r"\(\s*\)", "", text)
     return text
+
+
+# 공백과 HTML 엔티티를 정리해 분석하기 쉬운 한 줄 텍스트로 만듭니다.
+def _clean_text(text: str) -> str:
+    text = unescape(text or "")
+    text = _clean_hwp_artifacts(text)
+    return _normalize_plain_text(text)
 
 
 def _normalize_repeated_korean(text: str) -> str:
@@ -141,7 +150,7 @@ def _is_low_value_sentence(sentence: str) -> bool:
     compact = _compact_for_match(sentence)
     if not compact:
         return True
-    if len(sentence) > 900:
+    if len(sentence) > MAX_SENTENCE_CHARS:
         return True
     if "원본그림" in compact or "수식입니다" in sentence:
         return True
@@ -165,28 +174,28 @@ def _is_negative_sentence(sentence: str) -> bool:
 def _sentence_quality_score(sentence: str) -> float:
     length = len(sentence)
     if 45 <= length <= 260:
-        score = 2.0
+        score = SENTENCE_RANK_WEIGHTS.quality_good
     elif 24 <= length < 45:
-        score = 0.8
+        score = SENTENCE_RANK_WEIGHTS.quality_short
     elif 260 < length <= 430:
-        score = 0.4
+        score = SENTENCE_RANK_WEIGHTS.quality_long
     else:
-        score = -2.0
+        score = SENTENCE_RANK_WEIGHTS.quality_outlier
 
     if re.search(r"(따라서|즉|결론|핵심|중요|필요|의미|결과|보여|나타|제안|비교|차이)", sentence):
-        score += 1.2
+        score += SENTENCE_RANK_WEIGHTS.cue_keyword
     if re.search(r"(아니다|않다|없다|낮다|제외)", sentence):
-        score -= 1.4
+        score += SENTENCE_RANK_WEIGHTS.negative_cue_penalty
     if re.search(r"\d+(?:\.\d+)?\s?%|\d+\.\d+", sentence):
-        score += 0.9
+        score += SENTENCE_RANK_WEIGHTS.numeric_signal
     if len(re.findall(r"[,，]", sentence)) > 8:
-        score -= 1.2
+        score += SENTENCE_RANK_WEIGHTS.comma_overload_penalty
     return score
 
 
 # 기본 분석에서 중요한 문장 후보를 고르기 위한 점수 함수입니다.
 # 정확도, 실험, 데이터셋, 비교 같은 연구 문서 키워드가 있으면 점수를 더 줍니다.
-def _keyword_score(sentence: str, query_terms: set[str] | None = None, term_weights: Counter | None = None) -> float:
+def _keyword_score(sentence: str, term_weights: Counter | None = None) -> float:
     keywords = [
         "accuracy",
         "precision",
@@ -210,14 +219,18 @@ def _keyword_score(sentence: str, query_terms: set[str] | None = None, term_weig
         "제안",
     ]
     lowered = sentence.lower()
-    score = sum(2.2 for keyword in keywords if keyword in lowered) + _sentence_quality_score(sentence)
-    score += len(re.findall(r"\d+(?:\.\d+)?\s?%|\d+\.\d+", sentence)) * 2.5
-    if query_terms:
-        matched_count, coverage = _sentence_query_overlap(sentence, query_terms)
-        score += matched_count * 3.2 + coverage * 6.0
+    score = (
+        sum(SENTENCE_RANK_WEIGHTS.domain_keyword for keyword in keywords if keyword in lowered)
+        + _sentence_quality_score(sentence)
+    )
+    score += len(re.findall(r"\d+(?:\.\d+)?\s?%|\d+\.\d+", sentence)) * SENTENCE_RANK_WEIGHTS.metric_signal
     if term_weights:
         sentence_terms = set(_tokenize_terms(lowered))
-        score += sum(min(term_weights.get(term, 0), 4) * 0.38 for term in sentence_terms)
+        score += sum(
+            min(term_weights.get(term, 0), SENTENCE_RANK_WEIGHTS.term_frequency_cap)
+            * SENTENCE_RANK_WEIGHTS.term_frequency
+            for term in sentence_terms
+        )
     return score
 
 
@@ -228,18 +241,27 @@ def _top_sentences(text: str, limit: int = 5, question: str = "") -> list[str]:
         return []
 
     query_terms = _expanded_query_terms(question) if question else set()
+    rank_terms = list(query_terms)
     term_weights = Counter(_tokenize_terms(text))
     semantic_scores = semantic_sentence_scores(question, sentences)
     scored = []
     for index, sentence in enumerate(sentences):
-        matched_count, coverage = _sentence_query_overlap(sentence, query_terms)
         semantic_score = semantic_scores[index] if semantic_scores else None
-        score = (
-            _keyword_score(sentence, query_terms, term_weights)
-            + max(0, 1.6 - index * 0.04)  # 초반 문장에 약간 가중치
+        relevance_score, matched_count, coverage = query_relevance_score(
+            sentence,
+            query_terms,
+            rank_terms=rank_terms,
+            semantic_score=semantic_score,
         )
-        if semantic_score is not None:
-            score += semantic_score * 18
+        score = (
+            _keyword_score(sentence, term_weights)
+            + relevance_score
+            + max(
+                0,
+                SENTENCE_RANK_WEIGHTS.leading_sentence_bonus
+                - index * SENTENCE_RANK_WEIGHTS.leading_sentence_decay,
+            )
+        )
         scored.append((index, sentence, matched_count, coverage, score, semantic_score or 0.0))
 
     ranked = sorted(

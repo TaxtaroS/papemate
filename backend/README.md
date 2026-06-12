@@ -23,6 +23,17 @@ backend/    API 서버, 인증, 프로젝트 저장, 데이터 처리 로직
 docs/       워크플로우 다이어그램, 설계 문서, 회의 기록
 ```
 
+백엔드 폴더별 역할
+------------------
+
+- `backend/app/` : FastAPI API 서버 코드, 클라이언트 요청 처리, 라우터와 서비스 연결.
+- `backend/app/core/` : 앱 설정, 데이터베이스 연결, 보안, 공통 의존성 및 업로드 유틸리티.
+- `backend/app/routers/` : API 경로 정의, 각 기능별 엔드포인트 구현.
+- `backend/app/services/` : 문서 분석, AI 모델 호출, 변환/처리/임베딩/번역 등 비즈니스 로직.
+- `backend/models/` : 요청/응답 스키마 및 데이터 모델 정의.
+- `backend/main.py` : FastAPI 앱 진입점, 서버 초기화와 실행 설정.
+- `backend/Dockerfile` / `requirements*.txt` : 도커 빌드와 파이썬 의존성 정의.
+
 AI 문서 파싱과 질의응답 모델 처리는 현재 백엔드 서비스 모듈에서 관리하며, 필요하면 추후 `ai-service/`로 분리할 수 있습니다.
 
 백엔드 실행

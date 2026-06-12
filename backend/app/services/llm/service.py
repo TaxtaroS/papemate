@@ -14,6 +14,7 @@ def analyze_with_llm(
     google_api_key: str | None = None,
     analysis_text: str = "",
     relevant_chunks: list[dict] | None = None,
+    web_docs: list[dict] | None = None,
 ) -> dict:
     selected_provider = (provider or "auto").strip().lower()
     if selected_provider == "auto":
@@ -28,9 +29,9 @@ def analyze_with_llm(
         api_key = google_api_key or settings.gemini_api_key or settings.google_api_key
         if not api_key:
             return llm_error("PaperMate 분석 키가 없어 기본 문서 추출로 응답했습니다.", "gemini", settings.gemini_model)
-        return analyze_with_gemini(question, extracted_docs, api_key, analysis_text, relevant_chunks)
+        return analyze_with_gemini(question, extracted_docs, api_key, analysis_text, relevant_chunks, web_docs)
 
     api_key = openai_api_key or settings.openai_api_key
     if not api_key:
         return llm_error("PaperMate 분석 키가 없어 기본 문서 추출로 응답했습니다.", "openai", settings.openai_model)
-    return analyze_with_openai(question, extracted_docs, api_key, analysis_text, relevant_chunks)
+    return analyze_with_openai(question, extracted_docs, api_key, analysis_text, relevant_chunks, web_docs)

@@ -28,11 +28,14 @@ def semantic_sentence_scores(question: str, sentences: list[str]) -> list[float]
     instruction = settings.bert_grounding_instruction
     query = f"Instruct: {instruction}\nQuery: {question}" if instruction else question
     vectors = encode_texts([query, *sentences])
-    if not vectors:
+    if not vectors or len(vectors) != len(sentences) + 1:
         return None
 
-    query_vector = vectors[0]
-    return [round(cosine_similarity(query_vector, sentence_vector), 4) for sentence_vector in vectors[1:]]
+    try:
+        query_vector = vectors[0]
+        return [round(cosine_similarity(query_vector, sentence_vector), 4) for sentence_vector in vectors[1:]]
+    except Exception:
+        return None
 
 
 def semantic_grounding_score(answer: str, evidence: str) -> float | None:
@@ -50,13 +53,16 @@ def semantic_grounding_score(answer: str, evidence: str) -> float | None:
         for sentence in answer_sentences
     ]
     vectors = encode_texts(query_sentences + evidence_sentences)
-    if not vectors:
+    if not vectors or len(vectors) != len(query_sentences) + len(evidence_sentences):
         return None
 
-    answer_vectors = vectors[: len(answer_sentences)]
-    evidence_vectors = vectors[len(answer_sentences):]
-    best_scores = [
-        max(cosine_similarity(answer_vector, evidence_vector) for evidence_vector in evidence_vectors)
-        for answer_vector in answer_vectors
-    ]
-    return round(sum(best_scores) / max(len(best_scores), 1), 4)
+    try:
+        answer_vectors = vectors[: len(answer_sentences)]
+        evidence_vectors = vectors[len(answer_sentences):]
+        best_scores = [
+            max(cosine_similarity(answer_vector, evidence_vector) for evidence_vector in evidence_vectors)
+            for answer_vector in answer_vectors
+        ]
+        return round(sum(best_scores) / max(len(best_scores), 1), 4)
+    except Exception:
+        return None

@@ -104,66 +104,69 @@ export const DynamicVisualizer = ({ config, fallbackTitle }: { config: any, fall
 
     return (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-        {imageItems.map((item: any, index: number) => (
-          <article
-            key={item.id || `${item.source}-${index}`}
-            style={{
-              border: '1px solid #cbd5e1',
-              borderRadius: 8,
-              background: '#ffffff',
-              overflow: 'hidden',
-              minWidth: 0,
-            }}
-          >
-            {item.dataUrl ? (
-              <div style={{ background: '#f8fafc', aspectRatio: '4 / 3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <img
-                  src={item.dataUrl}
-                  alt={item.name || item.source || '추출 이미지'}
-                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-                />
-              </div>
-            ) : (
-              <div style={{ background: '#f8fafc', minHeight: 132, padding: 14, color: '#334155', fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-                {item.previewText || item.ocrText || '이미지 미리보기를 표시할 수 없습니다.'}
-              </div>
-            )}
-            <div style={{ padding: 12, display: 'grid', gap: 8 }}>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                <strong style={{ color: '#0f172a', fontSize: 14 }}>{item.source || item.name || `추출 항목 ${index + 1}`}</strong>
-                <span style={{ border: '1px solid #99f6e4', background: '#ecfeff', color: '#0f766e', borderRadius: 999, padding: '2px 7px', fontSize: 11, fontWeight: 800 }}>
-                  {item.kind || 'image'}
-                </span>
-              </div>
-              {(item.width && item.height) && (
-                <span style={{ color: '#64748b', fontSize: 12 }}>{item.width}x{item.height}px</span>
+        {imageItems.map((item: any, index: number) => {
+          const extractedText = item.tableText || item.ocrText || item.previewText || '';
+          return (
+            <article
+              key={item.id || `${item.source}-${index}`}
+              style={{
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                background: '#ffffff',
+                overflow: 'hidden',
+                minWidth: 0,
+              }}
+            >
+              {item.dataUrl ? (
+                <div style={{ background: '#f8fafc', aspectRatio: '4 / 3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img
+                    src={item.dataUrl}
+                    alt={item.name || item.source || '추출 이미지'}
+                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                  />
+                </div>
+              ) : (
+                <div style={{ background: '#f8fafc', minHeight: 132, padding: 14, color: '#334155', fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                  {extractedText || '이미지 미리보기를 표시할 수 없습니다.'}
+                </div>
               )}
-              {(item.ocrText || item.previewText) && (
-                <p style={{ margin: 0, color: '#475569', fontSize: 12, lineHeight: 1.45, maxHeight: 72, overflow: 'auto' }}>
-                  {item.ocrText || item.previewText}
-                </p>
-              )}
-              {item.dataUrl && (
-                <a
-                  href={item.dataUrl}
-                  download={item.name || `extracted-image-${index + 1}.png`}
-                  style={{
-                    justifySelf: 'start',
-                    border: '1px solid #0f766e',
-                    color: '#0f766e',
-                    borderRadius: 6,
-                    padding: '6px 9px',
-                    textDecoration: 'none',
-                    fontSize: 12,
-                    fontWeight: 800,
-                  }}
-                >
-                  추출 파일 저장
-                </a>
-              )}
-            </div>
-          </article>
-        ))}
+              <div style={{ padding: 12, display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <strong style={{ color: '#0f172a', fontSize: 14 }}>{item.source || item.name || `추출 항목 ${index + 1}`}</strong>
+                  <span style={{ border: '1px solid #99f6e4', background: '#ecfeff', color: '#0f766e', borderRadius: 999, padding: '2px 7px', fontSize: 11, fontWeight: 800 }}>
+                    {item.kind || 'image'}
+                  </span>
+                </div>
+                {(item.width && item.height) && (
+                  <span style={{ color: '#64748b', fontSize: 12 }}>{item.width}x{item.height}px</span>
+                )}
+                {extractedText && (
+                  <p style={{ margin: 0, color: '#475569', fontSize: 12, lineHeight: 1.45, maxHeight: 96, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+                    {extractedText}
+                  </p>
+                )}
+                {item.dataUrl && (
+                  <a
+                    href={item.dataUrl}
+                    download={item.name || `extracted-image-${index + 1}.png`}
+                    style={{
+                      justifySelf: 'start',
+                      border: '1px solid #0f766e',
+                      color: '#0f766e',
+                      borderRadius: 6,
+                      padding: '6px 9px',
+                      textDecoration: 'none',
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    추출 파일 저장
+                  </a>
+                )}
+              </div>
+            </article>
+          );
+        })}
       </div>
     );
   };

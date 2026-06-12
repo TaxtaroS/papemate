@@ -20,14 +20,23 @@ def llm_error(message: str, provider: str, model: str | None = None) -> dict:
 def parse_suggested_questions(answer: str) -> tuple[str, list[str]]:
     parts = answer.split("===SUGGESTED_QUESTIONS===")
     main_answer = parts[0].strip()
-    questions = []
+    visual_questions = []
+    related_questions = []
     if len(parts) > 1:
         raw_qs = parts[1].strip().split("\n")
         for q in raw_qs:
             cleaned = q.strip().lstrip("-").lstrip("*").lstrip("0123456789. ").strip()
-            if cleaned:
-                questions.append(cleaned)
-    return main_answer, questions
+            if not cleaned:
+                continue
+            if cleaned.startswith("[추천 시각화") or "추천 시각화" in cleaned[:20]:
+                if len(visual_questions) < 2:
+                    visual_questions.append(cleaned)
+                continue
+            if len(related_questions) < 2:
+                if not cleaned.startswith("[연관 질문]"):
+                    cleaned = f"[연관 질문] {cleaned}"
+                related_questions.append(cleaned)
+    return main_answer, [*visual_questions[:2], *related_questions[:2]]
 
 
 def korean_char_ratio(text: str) -> float:

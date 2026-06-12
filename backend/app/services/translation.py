@@ -1,6 +1,8 @@
 # 서비스: 영어 기반 분석 텍스트를 한국어로 번역하는 로컬 지원 로직입니다.
 """Optional local translation helpers for user-facing Korean analysis."""
 
+import logging
+import os
 import re
 from functools import lru_cache
 
@@ -9,6 +11,11 @@ from app.core.config import settings
 
 ENGLISH_WORD_RE = re.compile(r"\b[A-Za-z][A-Za-z\-]{2,}\b")
 KOREAN_RE = re.compile(r"[가-힣]")
+MAX_ARGOS_TRANSLATION_CHARS = int(os.getenv("MAX_ARGOS_TRANSLATION_CHARS", "1200"))
+MAX_ARGOS_TRANSLATED_LINES = int(os.getenv("MAX_ARGOS_TRANSLATED_LINES", "4"))
+MAX_ARGOS_LINE_CHARS = int(os.getenv("MAX_ARGOS_LINE_CHARS", "450"))
+
+logging.getLogger("argostranslate").setLevel(logging.WARNING)
 
 
 def _english_heavy(text: str) -> bool:
@@ -25,6 +32,8 @@ def _should_translate_line(line: str) -> bool:
     if len(stripped) < 12:
         return False
     if stripped.startswith(("{", "}", "- {", "```")):
+        return False
+    if "HWPHYPERLINK" in stripped or re.search(r"https?://|www\.", stripped, re.IGNORECASE):
         return False
     normalized = re.sub(r"^[-*]\s+", "", stripped)
     normalized = re.sub(r"^\[[^\]]+\]\s*", "", normalized)
@@ -69,8 +78,8 @@ def _argos_translation_ready() -> bool:
         return False
 
 
-def _translate_en_to_ko(text: str) -> str:
-    if not _argos_translation_ready():
+def _translate_en_to_ko(text: str, *, allow_argos: bool = True) -> str:
+    if not allow_argos or len(text or "") > MAX_ARGOS_LINE_CHARS or not _argos_translation_ready():
         return _cleanup_translated_text(_dictionary_translate(text))
     try:
         import argostranslate.translate
@@ -143,9 +152,18 @@ def ensure_korean_analysis_text(text: str) -> str:
 
     output: list[str] = []
     translated_any = False
+    translated_lines = 0
+    translated_chars = 0
     for line in str(text).splitlines():
         if _should_translate_line(line):
-            translated = _translate_en_to_ko(line)
+            next_chars = translated_chars + len(line)
+            allow_argos = (
+                translated_lines < MAX_ARGOS_TRANSLATED_LINES
+                and next_chars <= MAX_ARGOS_TRANSLATION_CHARS
+            )
+            translated = _translate_en_to_ko(line, allow_argos=allow_argos)
+            translated_lines += 1
+            translated_chars = next_chars
             output.append(translated)
             translated_any = translated_any or translated != line
         else:
@@ -184,18 +202,6 @@ def translate_analysis_payload(payload: dict) -> dict:
             if isinstance(doc, dict)
             else doc
             for doc in documents
-        ]
-
-    chunks = translated.get("relevant_chunks")
-    if isinstance(chunks, list):
-        translated["relevant_chunks"] = [
-            {
-                **chunk,
-                "text": _translate_value(chunk.get("text", "")),
-            }
-            if isinstance(chunk, dict)
-            else chunk
-            for chunk in chunks
         ]
 
     topics = translated.get("topics")

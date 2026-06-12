@@ -258,6 +258,7 @@ class AnalysisResponse(BaseModel):
     model: str | None = None
     llm_error: str | None = None
     suggested_questions: list[str] = Field(default_factory=list)
+    web_sources: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class VisualResponse(BaseModel):

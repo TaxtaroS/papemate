@@ -145,8 +145,8 @@ export const LeftUploadPanel = styled.div`
 `;
 
 export const MainQAEngine = styled.div`
-  flex: 0 0 40%;
-  min-width: 360px;
+  flex: 0 0 45%;
+  min-width: 420px;
   display: flex; flex-direction: column; height: 100dvh; background: #ffffff;
   min-height: 0;
 
@@ -163,8 +163,17 @@ export const TopMenuBar = styled.div`
   padding: 14px 22px;
   border-bottom: 1px solid #e2e8f0;     /* 💡 라인 컬러 통일 (#f1f5f9 -> #e2e8f0) */
   display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+  gap: 14px;
+  min-width: 0;
   
-  h2 { font-size: 18px; font-weight: 800; color: #1e293b; margin: 0; }
+  h2 {
+    flex: 0 0 auto;
+    font-size: 18px;
+    font-weight: 800;
+    color: #1e293b;
+    margin: 0;
+    white-space: nowrap;
+  }
 
   .restore-badge {
     margin-left: 8px;
@@ -177,7 +186,12 @@ export const TopMenuBar = styled.div`
   
   /* 우측 액션 버튼 군 (프로젝트 저장, 내보내기 등) */
   .actions { 
-    display: flex; gap: 8px; align-items: center;
+    min-width: 0;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
 
     button { 
       background: #ffffff;              /* 💡 버튼 배경을 흰색으로 전환하여 더 정갈하게 변경 */
@@ -186,6 +200,8 @@ export const TopMenuBar = styled.div`
       font-weight: 700; font-size: 13px; 
       cursor: pointer; color: #475569;
       transition: all 0.15s;
+      flex: 0 0 auto;
+      white-space: nowrap;
       
       &:hover { background: #f8fafc; color: #1e293b; border-color: #94a3b8; }
     } 
@@ -646,6 +662,22 @@ export const AiRow = styled.div`
       transform: translateY(-1px);
       box-shadow: 0 4px 6px rgba(14, 165, 164, 0.2);
     }
+  }
+
+  .suggested-chip.related {
+    border-color: #64748b;
+    color: #475569;
+    box-shadow: 0 2px 4px rgba(71, 85, 105, 0.08);
+
+    &:hover {
+      background-color: #475569;
+      color: white;
+      box-shadow: 0 4px 6px rgba(71, 85, 105, 0.18);
+    }
+  }
+
+  .suggested-chip.visual {
+    font-weight: 700;
   }
 
   @media (max-width: 680px) {

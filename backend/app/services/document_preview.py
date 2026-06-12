@@ -19,13 +19,13 @@ PREVIEW_EXTENSIONS = {".hwp", ".hwpx"}
 BOX_NOISE_PATTERN = re.compile(r"[\u25a0-\u25ff\u2b00-\u2bff\ufffd]+")
 TEXT_NOISE_PATTERN = re.compile(r"[\u0100-\u024f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\ue000-\uf8ff]+")
 IMAGE_META_PATTERN = re.compile(
-    r"(?:원본\s*그림|그림의\s*이름|그림의\s*크기|image|picture|figure)",
+    r"(?:^\s*\[?\s*(?:그림|이미지|figure)\s*\d+\s*\]?|그림입니다|원본\s*그림|그림의\s*이름|그림의\s*크기|image|picture|figure)",
     re.IGNORECASE,
 )
-TABLE_HINT_PATTERN = re.compile(r"(?:^|\s)(?:표|table)\s*\d*|[│┃┌┐└┘├┤┬┴┼]", re.IGNORECASE)
+TABLE_HINT_PATTERN = re.compile(r"^\s*\[?\s*(?:표|table)\s*\d+\s*\]?|[│┃┌┐└┘├┤┬┴┼]", re.IGNORECASE)
 HWPX_PARAGRAPH_TAGS = {"p", "para"}
-HWPX_TABLE_TAGS = {"tbl", "table"}
-HWPX_IMAGE_TAGS = {"pic", "image", "img", "ole", "container", "shapeobject"}
+HWPX_TABLE_TAGS = {"tbl", "table", "tr", "tc", "row", "cell"}
+HWPX_IMAGE_TAGS = {"pic", "image", "img", "ole", "container", "shapeobject", "shape", "picture"}
 
 
 def _local_name(tag: str) -> str:
@@ -56,6 +56,34 @@ def _is_table_like(raw_line: str, cleaned_line: str) -> bool:
     return raw_line.count("\t") >= 2 or raw_line.count("|") >= 2
 
 
+def _is_dense_table_text(line: str) -> bool:
+    value = _clean_preview_line(line)
+    if not value:
+        return False
+    tokens = value.split()
+    numeric_tokens = [token for token in tokens if re.search(r"-?\d[\d,]*(?:\.\d+)?%?", token)]
+    hangul_tokens = [token for token in tokens if re.search(r"[가-힣]", token)]
+    if len(numeric_tokens) >= 5 and len(numeric_tokens) >= max(3, len(tokens) * 0.45):
+        return True
+    if len(tokens) >= 12 and len(numeric_tokens) >= 4 and len(hangul_tokens) <= 8:
+        return True
+    if re.search(r"(?:\d{4}년|1~3월|누계|전년누계비|조사망률|증감률).*(?:\d[\d,]*\s+){4,}", value):
+        return True
+    return False
+
+
+def _is_preview_excluded_line(raw_line: str, cleaned_line: str) -> bool:
+    if not cleaned_line:
+        return False
+    if IMAGE_META_PATTERN.search(raw_line) or IMAGE_META_PATTERN.search(cleaned_line):
+        return True
+    if _is_table_like(raw_line, cleaned_line):
+        return True
+    if _is_dense_table_text(cleaned_line):
+        return True
+    return False
+
+
 def _join_hwpx_texts(parts: list[str]) -> str:
     tokens = [_clean_preview_line(part) for part in parts]
     tokens = [token for token in tokens if token]
@@ -80,17 +108,15 @@ def _extract_hwpx_blocks(root: ElementTree.Element) -> list[str]:
 
         if name in HWPX_TABLE_TAGS:
             table_index += 1
-            blocks.append(f"[표 {table_index}]")
             return
 
         if name in HWPX_IMAGE_TAGS:
             image_index += 1
-            blocks.append(f"[이미지 {image_index}]")
             return
 
         if name in HWPX_PARAGRAPH_TAGS:
             paragraph = _join_hwpx_texts([text for text in node.itertext() if text and text.strip()])
-            if paragraph:
+            if paragraph and not _is_preview_excluded_line(paragraph, _clean_preview_line(paragraph)):
                 blocks.append(paragraph)
             return
 
@@ -102,35 +128,13 @@ def _extract_hwpx_blocks(root: ElementTree.Element) -> list[str]:
 
 
 def _structure_preview_text(text: str) -> str:
-    image_index = 0
-    table_index = 0
     output: list[str] = []
-    previous_placeholder = ""
 
     for raw_line in str(text or "").replace("\r", "\n").splitlines():
         cleaned = _clean_preview_line(raw_line)
-        placeholder = ""
-
-        if IMAGE_META_PATTERN.search(raw_line) or IMAGE_META_PATTERN.search(cleaned):
-            if previous_placeholder.startswith("[이미지 "):
-                placeholder = previous_placeholder
-            else:
-                image_index += 1
-                placeholder = f"[이미지 {image_index}]"
-        elif _is_table_like(raw_line, cleaned):
-            if previous_placeholder.startswith("[표 "):
-                placeholder = previous_placeholder
-            else:
-                table_index += 1
-                placeholder = f"[표 {table_index}]"
-
-        if placeholder:
-            if placeholder != previous_placeholder:
-                output.append(placeholder)
-            previous_placeholder = placeholder
+        if _is_preview_excluded_line(raw_line, cleaned):
             continue
 
-        previous_placeholder = ""
         if _is_low_signal_line(cleaned):
             if output and output[-1] != "":
                 output.append("")

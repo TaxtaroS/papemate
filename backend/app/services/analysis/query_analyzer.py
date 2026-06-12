@@ -25,17 +25,31 @@ DOMAIN_TERMS = {
 
 INTENT_CUE_TERMS = {
     "summary": {
-        "중요",
-        "중요도",
         "핵심",
         "요약",
-        "우선순위",
-        "의미",
-        "강조",
         "주제",
         "결론",
         "목적",
+        "개요",
+        "정리",
+    },
+    "analysis": {
+        "분석",
+        "설명",
+        "의미",
         "필요성",
+        "특징",
+        "해석",
+        "자세히",
+    },
+    "importance": {
+        "중요",
+        "중요도",
+        "핵심",
+        "우선순위",
+        "강조",
+        "비중",
+        "영향",
     },
     "metrics": {
         "실험",
@@ -77,11 +91,21 @@ INTENT_CUE_TERMS = {
     },
 }
 
+INTENT_TEXT_CUE_TERMS = {
+    "summary": {"summary", "main"},
+    "analysis": {"analysis", "explain", "detail"},
+    "importance": {"important", "importance", "priority"},
+    "metrics": {"score", "accuracy", "f1"},
+    "compare": {"다른", "compare", "difference"},
+    "extract": {"quote", "extract"},
+}
+
 QUERY_EXPANSIONS = {
     "중요도": {"중요", "핵심", "우선순위", "비중", "영향", "강조", "의미", "필요성"},
     "중요": {"중요도", "핵심", "우선순위", "의미", "필요성"},
     "요약": {"핵심", "개요", "정리", "결론", "목적"},
     "분석": {"핵심", "근거", "결과", "특징", "의미"},
+    "설명": {"분석", "의미", "근거", "특징"},
     "결과": {"실험", "성능", "수치", "평가", "검증"},
     "성능": {"정확도", "정밀도", "재현율", "f1", "평가", "결과"},
     "동향": {"추이", "변화", "증가", "감소", "흐름", "수치"},
@@ -177,20 +201,18 @@ def _tokenize_terms(text: str) -> list[str]:
 
 def _question_intent(question: str) -> str:
     lowered = (question or "").lower()
-    if any(word in lowered for word in ["중요", "핵심", "요약", "분석", "설명", "summary", "main"]):
-        return "summary"
-    if any(word in lowered for word in ["실험", "결과", "정확도", "성능", "동향", "추이", "이동", "이동량", "증가", "감소", "변화", "score", "accuracy", "f1"]):
-        return "metrics"
-    if any(word in lowered for word in ["비교", "차이", "다른", "compare", "difference"]):
-        return "compare"
-    if any(word in lowered for word in ["문장", "발췌", "인용", "quote", "extract"]):
-        return "extract"
+    for intent in ("extract", "compare", "metrics", "importance", "analysis", "summary"):
+        cue_terms = INTENT_CUE_TERMS.get(intent, set()) | INTENT_TEXT_CUE_TERMS.get(intent, set())
+        if any(term.lower() in lowered for term in cue_terms):
+            return intent
     return "general"
 
 
 def _intent_label(intent: str) -> str:
     return {
         "summary": "핵심 내용과 중요도",
+        "analysis": "상세 분석과 해석",
+        "importance": "중요도와 우선순위",
         "metrics": "동향과 수치 근거",
         "compare": "비교와 차이점",
         "extract": "중요 문장 발췌",

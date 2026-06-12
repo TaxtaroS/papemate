@@ -6,7 +6,13 @@ import urllib.parse
 import urllib.request
 
 from app.core.config import settings
-from app.services.llm.prompt_builder import MAX_GEMINI_CONTEXT_CHARS, MIN_GEMINI_CONTEXT_CHARS, build_prompts, is_visual_request
+from app.services.llm.prompt_builder import (
+    MAX_GEMINI_CONTEXT_CHARS,
+    MIN_GEMINI_CONTEXT_CHARS,
+    build_prompts,
+    is_visual_request,
+    multimodal_gemini_parts,
+)
 from app.services.llm.response_utils import llm_error, needs_korean_rewrite, parse_suggested_questions, postprocess_visual_answer
 
 
@@ -18,26 +24,28 @@ def extract_gemini_text(payload: dict) -> str:
     return "\n".join(str(part.get("text", "")) for part in parts if part.get("text")).strip()
 
 
-def call_gemini(api_key: str, model: str, system_prompt: str, user_prompt: str) -> str:
+def call_gemini(api_key: str, model: str, system_prompt: str, user_prompt: str, image_parts: list[dict] | None = None) -> str:
     encoded_model = urllib.parse.quote(model, safe="")
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{encoded_model}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
     )
+    parts = [
+        {
+            "text": (
+                "[System Instructions]\n"
+                f"{system_prompt}\n\n"
+                "[User Prompt]\n"
+                f"{user_prompt}"
+            )
+        }
+    ]
+    parts.extend(image_parts or [])
     payload = {
         "contents": [
             {
                 "role": "user",
-                "parts": [
-                    {
-                        "text": (
-                            "[System Instructions]\n"
-                            f"{system_prompt}\n\n"
-                            "[User Prompt]\n"
-                            f"{user_prompt}"
-                        )
-                    }
-                ],
+                "parts": parts,
             }
         ],
         "generationConfig": {"temperature": 0.2},
@@ -93,6 +101,7 @@ def analyze_with_gemini(
     api_key: str,
     analysis_text: str = "",
     relevant_chunks: list[dict] | None = None,
+    web_docs: list[dict] | None = None,
 ) -> dict:
     model = settings.gemini_model
     visual_request = is_visual_request(question)
@@ -113,9 +122,16 @@ def analyze_with_gemini(
             analysis_text,
             relevant_chunks,
             context_limit=context_limit,
+            web_docs=web_docs,
         )
         try:
-            answer = call_gemini(api_key, attempt_model, system_prompt, user_prompt)
+            answer = call_gemini(
+                api_key,
+                attempt_model,
+                system_prompt,
+                user_prompt,
+                multimodal_gemini_parts(extracted_docs),
+            )
             break
         except urllib.error.HTTPError as exc:
             detail = http_error_detail(exc)

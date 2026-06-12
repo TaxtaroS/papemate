@@ -1,6 +1,7 @@
 """OpenAI provider integration."""
 
 import concurrent.futures
+import logging
 
 from app.core.config import settings
 from app.services.llm.prompt_builder import build_prompts, chat_user_content, is_visual_request
@@ -16,12 +17,16 @@ from app.services.llm.response_utils import (
 from app.services.openai_client import OPENAI_ANALYSIS_TIMEOUT_SECONDS, make_openai_client, openai_error_message
 
 
+logger = logging.getLogger(__name__)
+
+
 def analyze_with_openai(
     question: str,
     extracted_docs: list[dict],
     api_key: str,
     analysis_text: str = "",
     relevant_chunks: list[dict] | None = None,
+    web_docs: list[dict] | None = None,
 ) -> dict:
     try:
         import openai  # noqa: F401
@@ -30,7 +35,7 @@ def analyze_with_openai(
 
     model = settings.openai_model
     client = make_openai_client(api_key, OPENAI_ANALYSIS_TIMEOUT_SECONDS)
-    system_prompt, user_prompt = build_prompts(question, extracted_docs, analysis_text, relevant_chunks)
+    system_prompt, user_prompt = build_prompts(question, extracted_docs, analysis_text, relevant_chunks, web_docs=web_docs)
 
     question_lower = (question or "").strip().lower()
     is_general_summary = not question_lower or any(
@@ -73,11 +78,18 @@ def analyze_with_openai(
 
         if extracted_context:
             history_block = f"[Previous Conversation History]\n{analysis_text}\n\n" if analysis_text else ""
+            web_block = ""
+            if web_docs:
+                web_block = "[Web Search Context]\n" + "\n\n".join(
+                    f"[웹 {index}]\n{doc.get('text', '')}"
+                    for index, doc in enumerate(web_docs, start=1)
+                ) + "\n\n"
 
             if visual_request:
                 user_prompt = (
                     "[Uploaded Document Context - Extracted Facts]\n"
                     f"{extracted_context}\n\n"
+                    f"{web_block}"
                     f"{history_block}"
                     f"The user requested a visualization: '{question}'. "
                     "Return only the strict JSON object required by the system instructions."
@@ -86,8 +98,9 @@ def analyze_with_openai(
                 user_prompt = (
                     "[Uploaded Document Context - Extracted Facts]\n"
                     f"{extracted_context}\n\n"
+                    f"{web_block}"
                     f"{history_block}"
-                    "Write a thorough Korean analysis based only on the extracted facts above. "
+                    "Write a thorough Korean analysis based only on the extracted document facts above and the explicit web context if provided. "
                     "The source facts may include English, but the final user-facing answer must be natural Korean. "
                     "Preserve concrete facts, numbers, names, methods, and conclusions."
                 )
@@ -97,18 +110,35 @@ def analyze_with_openai(
         if visual_request:
             request_kwargs["response_format"] = {"type": "json_object"}
 
+        user_content = chat_user_content(user_prompt, extracted_docs)
         response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": chat_user_content(user_prompt, extracted_docs)},
+                {"role": "user", "content": user_content},
             ],
             temperature=0.2,
             **request_kwargs,
         )
         answer = response.choices[0].message.content.strip()
     except Exception as exc:
-        return llm_error(openai_error_message(exc), "openai", model)
+        if getattr(exc, "status_code", None) == 400:
+            try:
+                logger.info("OpenAI multimodal request failed with 400; retrying text-only analysis.")
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.2,
+                    **request_kwargs,
+                )
+                answer = response.choices[0].message.content.strip()
+            except Exception as retry_exc:
+                return llm_error(openai_error_message(retry_exc), "openai", model)
+        else:
+            return llm_error(openai_error_message(exc), "openai", model)
 
     if not answer:
         return llm_error("PaperMate 분석 엔진이 빈 답변을 반환했습니다.", "openai", model)

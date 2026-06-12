@@ -1,5 +1,10 @@
 """Prompt and multimodal input construction for LLM analysis."""
 
+import re
+
+from app.services.analysis.query_analyzer import _intent_label, _question_intent
+
+
 MAX_CONTEXT_CHARS = 400000
 MAX_GEMINI_CONTEXT_CHARS = 24000
 MIN_GEMINI_CONTEXT_CHARS = 8000
@@ -61,6 +66,29 @@ def build_ranked_document_context(
     return clip_text("\n\n".join(blocks), context_limit)
 
 
+def build_web_context(web_docs: list[dict], context_limit: int = 12000) -> str:
+    blocks = []
+    remaining = context_limit
+    for index, doc in enumerate(web_docs or [], start=1):
+        if remaining <= 0:
+            break
+        text = clip_text(doc.get("text", ""), max(800, min(2500, remaining)))
+        if not text.strip():
+            continue
+        block = "\n".join(
+            [
+                f"[웹 {index}]",
+                f"제목: {doc.get('filename', '웹 검색 결과')}",
+                f"URL: {doc.get('url', '')}",
+                "내용:",
+                text,
+            ]
+        )
+        blocks.append(block)
+        remaining -= len(block)
+    return clip_text("\n\n".join(blocks), context_limit)
+
+
 def multimodal_image_inputs(extracted_docs: list[dict], limit: int = MAX_MULTIMODAL_IMAGES) -> list[dict]:
     inputs = []
     for doc in extracted_docs or []:
@@ -72,13 +100,31 @@ def multimodal_image_inputs(extracted_docs: list[dict], limit: int = MAX_MULTIMO
             inputs.append(
                 {
                     "type": "image_url",
-                    "image_url": {"url": data_url, "detail": "auto"},
+                    "image_url": {"url": data_url, "detail": "high"},
                     "label": label,
                 }
             )
             if len(inputs) >= limit:
                 return inputs
     return inputs
+
+
+def multimodal_gemini_parts(extracted_docs: list[dict], limit: int = MAX_MULTIMODAL_IMAGES) -> list[dict]:
+    parts = []
+    for item in multimodal_image_inputs(extracted_docs, limit):
+        data_url = (item.get("image_url") or {}).get("url", "")
+        match = re.match(r"^data:(?P<mime>[-\w.+/]+);base64,(?P<data>.+)$", data_url)
+        if not match:
+            continue
+        parts.append(
+            {
+                "inline_data": {
+                    "mime_type": match.group("mime"),
+                    "data": match.group("data"),
+                }
+            }
+        )
+    return parts
 
 
 def chat_user_content(user_prompt: str, extracted_docs: list[dict]):
@@ -138,13 +184,17 @@ def build_prompts(
     analysis_text: str = "",
     relevant_chunks: list[dict] | None = None,
     context_limit: int = MAX_CONTEXT_CHARS,
+    web_docs: list[dict] | None = None,
 ) -> tuple[str, str]:
+    intent = _question_intent(question)
     document_context = build_ranked_document_context(question, extracted_docs, relevant_chunks, context_limit)
+    web_context = build_web_context(web_docs or [])
 
     core_prompt = (
         "You are 'PaperMate', a top-tier AI research assistant designed to help users analyze and visualize various documents, including academic papers, business reports, and proposals.\n\n"
         "[Core Principles]\n"
-        "1. Strict Grounding: You MUST base your answers SOLELY on the provided document (Context). Zero hallucination. Do not use external knowledge.\n"
+        "1. Strict Grounding: By default, base answers SOLELY on the provided uploaded document context, which mirrors the user's preview panel. Zero hallucination. Do not use external knowledge, current events, or pretrained memory to fill gaps.\n"
+        "1-1. Web Compare Exception: If and only if a [Web Search Context] block is provided, you may use it only for the user's explicit web-comparison request. Keep uploaded document facts separate from web facts and cite web facts with [웹 N].\n"
         "2. Citation: Always append the precise source at the end of sentences when citing facts or numbers. For PDFs, cite only the provided source label like [File Name - Page X]. Never treat bracketed reference numbers such as [26] in a REFERENCES section as page numbers. For HWP/HWPX/DOCX, cite the provided section label. NEVER cite the [Previous Conversation History] as a source.\n"
         "3. Output Language: Always write final user-facing responses in Korean, regardless of the uploaded document language. If the source document is English or another language, translate and synthesize it into natural Korean. Keep proper nouns, model names, technical abbreviations, numbers, and citations as-is only when necessary. Chart labels and suggested questions MUST also be Korean.\n"
         "4. Reasoning Discipline: Before writing your final answer, deeply analyze the user's request and the document context step-by-step internally. Extract all necessary facts first, then synthesize them into a logical and highly accurate final response. Do not reveal hidden chain-of-thought; provide concise evidence summaries only when useful.\n\n"
@@ -153,6 +203,7 @@ def build_prompts(
     text_mode_prompt = (
         "-----------------------------------\n"
         "[Task: 📝 Standard Text Summary & Q&A]\n"
+        "- 🚨 Rule 0 [Mode Priority]: Follow the detected request mode below. Mode-specific instructions override the generic summary format.\n"
         "- 🚨 Rule 1 [Scope Control - CRITICAL]: First, identify the exact SCOPE of the user's prompt. If the user asks for a specific section (e.g., '서론만', '결과만') or asks to elaborate on a specific point, you MUST act as a 'Laser Extractor'. Completely IGNORE the rest of the document. NEVER provide a full-document summary in this case.\n"
         "- 🔍 Rule 2 [Deep Dive]: If the user says '이 부분을 더 요약해줘' or '더 자세히 설명해줘', provide a highly detailed, focused analysis of ONLY that specific topic. Do not just skim.\n"
         "- 📝 Rule 3 [MANDATORY SUMMARY FORMAT]: When the user asks for a general summary, or when no specific scope is given, use the markdown structure below. Translate placeholders to Korean.\n\n"
@@ -167,13 +218,53 @@ def build_prompts(
         "* **<세부 지표/개념 1>:** ...\n"
         "(문서의 정보량을 최대한 보존할 수 있도록 H3 `###` 섹션을 풍부하게 생성하세요. '다수 포함되어 있다' 같은 모호한 표현을 절대 쓰지 말고, 정확히 어떤 내용인지 팩트 위주로 길고 상세하게 작성하세요.)\n"
         "- 🚨 Rule 4 [Full-Document Coverage]: If the document is short, extract every important detail without inventing filler text. For long documents, cover the middle and end sections as well, not only the abstract or introduction.\n"
-        "- 🚨 Rule 5 [Mandatory Suggested Visualization Questions]: At the very end of your text response, you MUST append the exact separator '===SUGGESTED_QUESTIONS==='.\n"
-        "After the separator, generate 3-4 highly recommended follow-up questions that guide the user to create tables or charts from data-rich sections in the document.\n"
-        "Prioritize trends, comparisons, rankings, categories, time series, region/year/group breakdowns, and metrics that can be visualized.\n"
-        "Do NOT recommend a visualization for a single isolated point in time. Prefer multi-period or multi-category questions such as monthly trends, yearly comparisons, regional comparisons, model comparisons, or before/after changes.\n"
-        "Format each recommendation EXACTLY like this in Korean: '[추천 시각화: 95점] 2024년 분기별 매출 추이 꺾은선 그래프 그려줘'\n"
-        "Do not include any other text after the separator except these formatted questions.\n"
+        "- 🚨 Rule 5 [Mandatory Document-Based Follow-Up Chips]: At the very end of your text response, you MUST append the exact separator '===SUGGESTED_QUESTIONS==='.\n"
+        "After the separator, generate exactly 4 short follow-up chips based only on the uploaded document context: exactly 2 visualization recommendations and exactly 2 related questions.\n"
+        "For the 2 visualization recommendations, prioritize document-supported trends, comparisons, rankings, categories, time series, region/year/group breakdowns, and metrics. Do NOT recommend a visualization for a single isolated point in time.\n"
+        "For the 2 related questions, make simple expected questions that can be answered directly from the uploaded document context. Do not ask about facts outside the document.\n"
+        "Format visualization chips EXACTLY like this in Korean: '[추천 시각화: 95점] 2024년 분기별 매출 추이 꺾은선 그래프 그려줘'\n"
+        "Format related question chips EXACTLY like this in Korean: '[연관 질문] 문서에서 확인되는 주요 원인은 무엇이야?'\n"
+        "Do not include any other text after the separator except these 4 formatted chips.\n"
     )
+
+    intent_prompt = {
+        "summary": (
+            "[Detected Request Mode: SUMMARY]\n"
+            "- The user wants a concise summary. Prioritize the whole-document gist, main topic, conclusion, and 3-5 key points.\n"
+            "- Do NOT over-expand into a deep section-by-section analysis unless the document is very short.\n"
+        ),
+        "analysis": (
+            "[Detected Request Mode: DEEP ANALYSIS]\n"
+            "- The user wants analysis, not just summary. Explain structure, meaning, implications, evidence, and relationships between points.\n"
+            "- Include sections such as '핵심 해석', '근거', '시사점', and '주의할 점' when supported by the document.\n"
+        ),
+        "importance": (
+            "[Detected Request Mode: IMPORTANCE RANKING]\n"
+            "- The user asks what is important or asks for importance. Rank the most important points by priority.\n"
+            "- For each item, explain why it matters and cite the exact supporting source. Avoid a generic full-document summary.\n"
+            "- Use a numbered list with importance labels such as '가장 중요', '중요', '보조 근거'.\n"
+        ),
+        "metrics": (
+            "[Detected Request Mode: METRICS]\n"
+            "- The user is asking about numbers, results, trends, or changes. Prioritize concrete values, units, periods, groups, and comparisons.\n"
+            "- If the exact requested value is not present in the uploaded document context, say that it cannot be confirmed from the document instead of estimating or using outside knowledge.\n"
+            "- Do not bury numeric evidence inside a broad summary.\n"
+        ),
+        "compare": (
+            "[Detected Request Mode: COMPARISON]\n"
+            "- The user wants comparison. Organize the answer by compared targets, commonalities, differences, and evidence.\n"
+            "- If the targets are implicit, infer them only from the uploaded document context.\n"
+        ),
+        "extract": (
+            "[Detected Request Mode: IMPORTANT SENTENCE EXTRACTION]\n"
+            "- The user asks for important sentences or excerpts. Return selected source sentences/passages first, not a general summary.\n"
+            "- For each excerpt, add a brief reason explaining why it is important and include the source label.\n"
+            "- Preserve the wording of source passages as much as possible, but keep excerpts short.\n"
+        ),
+    }.get(intent, (
+        "[Detected Request Mode: GENERAL]\n"
+        "- Answer the user's question directly using the uploaded document context.\n"
+    ))
 
     visual_mode_prompt = (
         "-----------------------------------\n"
@@ -203,17 +294,21 @@ def build_prompts(
         "- 'series' is required for charts except pie.\n"
     )
 
-    system_prompt = core_prompt + (visual_mode_prompt if is_visual_request(question) else text_mode_prompt)
+    system_prompt = core_prompt + (visual_mode_prompt if is_visual_request(question) else text_mode_prompt + "\n" + intent_prompt)
     history_block = f"[Previous Conversation History]\n{analysis_text}\n\n" if analysis_text else ""
     doc_block = f"[Uploaded Document Context]\n{document_context}\n\n" if document_context else ""
+    web_block = f"[Web Search Context]\n{web_context}\n\n" if web_context else ""
 
     if question and question.strip():
         user_prompt = f"""
 [User Request]
 {question}
 
-{doc_block}{history_block}
-Use the uploaded document context as the primary source. Use previous conversation history only to understand continuity, never as a citation source.
+[Detected Intent]
+{intent} - {_intent_label(intent)}
+
+{doc_block}{web_block}{history_block}
+Use the uploaded document context as the only factual source unless a Web Search Context block is present. If Web Search Context is present, use it only to compare with the uploaded document and clearly label web-derived facts. Use previous conversation history only to understand continuity, never as a citation source or data source. If the answer is not directly supported by the uploaded document context or the explicit web context, say that it cannot be confirmed.
 Important: Even if the uploaded document context is English, write the final analysis and summary in Korean.
 """
     else:
@@ -221,8 +316,11 @@ Important: Even if the uploaded document context is English, write the final ana
 [User Request]
 문서의 전반적인 내용을 꼼꼼하게 분석해줘.
 
-{doc_block}{history_block}
-Use the uploaded document context as the primary source. Use previous conversation history only to understand continuity, never as a citation source.
+[Detected Intent]
+analysis - {_intent_label("analysis")}
+
+{doc_block}{web_block}{history_block}
+Use the uploaded document context as the only factual source unless a Web Search Context block is present. If Web Search Context is present, use it only to compare with the uploaded document and clearly label web-derived facts. Use previous conversation history only to understand continuity, never as a citation source or data source. If the answer is not directly supported by the uploaded document context or the explicit web context, say that it cannot be confirmed.
 Important: Even if the uploaded document context is English, write the final analysis and summary in Korean.
 """
     return system_prompt, user_prompt

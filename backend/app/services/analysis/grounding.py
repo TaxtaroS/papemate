@@ -111,6 +111,24 @@ def _terms(text: str) -> set[str]:
     return terms
 
 
+def _language_counts(text: str) -> tuple[int, int]:
+    normalized = str(text or "")
+    korean = len(re.findall(r"[가-힣]", normalized))
+    english = len(re.findall(r"[A-Za-z]", normalized))
+    return korean, english
+
+
+def _is_cross_language_answer(answer: str, evidence: str) -> bool:
+    answer_ko, answer_en = _language_counts(answer)
+    evidence_ko, evidence_en = _language_counts(evidence)
+    return (
+        answer_ko >= 30
+        and answer_ko > answer_en * 1.2
+        and evidence_en >= 60
+        and evidence_en > evidence_ko * 1.5
+    )
+
+
 def _evidence_text(extracted_docs: list[dict], relevant_chunks: list[dict], metrics: list[str]) -> str:
     parts = []
     parts.extend(str(doc.get("text", "")) for doc in extracted_docs or [])
@@ -151,6 +169,13 @@ def validate_grounding(
     supported_terms = answer_terms & evidence_terms
 
     if len(answer_terms) >= 12 and support_ratio < 0.22 and len(supported_terms) < 5:
+        if _is_cross_language_answer(answer, evidence):
+            return GroundingResult(
+                True,
+                "Cross-language answer was accepted after numeric grounding passed.",
+                method="cross_language",
+            ).to_dict()
+
         semantic_score = semantic_grounding_score(answer, evidence)
         if semantic_score is not None and semantic_score >= settings.bert_grounding_threshold:
             return GroundingResult(
