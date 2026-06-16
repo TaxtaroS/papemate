@@ -2,6 +2,7 @@
 
 import concurrent.futures
 import logging
+from typing import Any, cast
 
 from app.core.config import settings
 from app.services.llm.prompt_builder import build_prompts, chat_user_content, is_visual_request
@@ -122,20 +123,24 @@ def analyze_with_openai(
                 )
 
     try:
-        request_kwargs = {}
+        user_content: Any = chat_user_content(user_prompt, extracted_docs)
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
         if visual_request:
-            request_kwargs["response_format"] = {"type": "json_object"}
-
-        user_content = chat_user_content(user_prompt, extracted_docs)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=0.2,
-            **request_kwargs,
-        )
+            response = client.chat.completions.create(
+                model=model,
+                messages=cast(Any, messages),
+                temperature=0.2,
+                response_format=cast(Any, {"type": "json_object"}),
+            )
+        else:
+            response = client.chat.completions.create(
+                model=model,
+                messages=cast(Any, messages),
+                temperature=0.2,
+            )
 
         content = response.choices[0].message.content
         if content is None:
@@ -150,15 +155,23 @@ def analyze_with_openai(
         if getattr(exc, "status_code", None) == 400:
             try:
                 logger.info("OpenAI multimodal request failed with 400; retrying text-only analysis.")
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=0.2,
-                    **request_kwargs,
-                )
+                retry_messages: list[dict[str, Any]] = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
+                if visual_request:
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=cast(Any, retry_messages),
+                        temperature=0.2,
+                        response_format=cast(Any, {"type": "json_object"}),
+                    )
+                else:
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=cast(Any, retry_messages),
+                        temperature=0.2,
+                    )
 
                 content = response.choices[0].message.content
                 if content is None:
