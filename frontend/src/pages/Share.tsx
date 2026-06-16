@@ -234,6 +234,16 @@ const hasVisualPayload = (asset = {}) => {
   return data.length > 0 || rows.length > 0 || columns.length > 0 || series.length > 0 || (imageVisualKinds.has(kind) && items.length > 0);
 };
 
+const getValidProjectVisuals = (project) =>
+  asArray(project?.visuals).filter((visual) => visual?.id && hasVisualPayload(visual));
+
+const findProjectByReference = (projectList, reference) =>
+  asArray(projectList).find(
+    (project) =>
+      (reference?.id && project.id === reference.id) ||
+      (reference?.inviteCode && project.inviteCode === reference.inviteCode)
+  );
+
 const hasTimelineAssetContent = (asset = {}) => {
   if (!asset) return false;
   if (asset.type === 'question' || asset.type === 'answer') return Boolean(String(asset.text || '').trim());
@@ -424,9 +434,20 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
       .filter(([id]) => id);
     return new Map(entries);
   }, [room.importedVisuals]);
+  const visualLibraryProject = useMemo(() => {
+    if (!activeProject) return null;
+    const activeVisuals = getValidProjectVisuals(activeProject);
+    const sourceProject = asArray(activeProject.sourceProjects)
+      .map((sourceProjectRef) => findProjectByReference(allProjects, sourceProjectRef))
+      .find((project) => project?.id !== activeProject.id && getValidProjectVisuals(project).length > 0);
+
+    if (!sourceProject) return activeProject;
+    const sourceVisuals = getValidProjectVisuals(sourceProject);
+    return sourceVisuals.length >= activeVisuals.length ? sourceProject : activeProject;
+  }, [activeProject, allProjects]);
   const activeProjectVisuals = useMemo(
-    () => asArray(activeProject?.visuals).filter((visual) => visual?.id && hasVisualPayload(visual)),
-    [activeProject?.visuals]
+    () => getValidProjectVisuals(visualLibraryProject),
+    [visualLibraryProject]
   );
   const sortedMembers = useMemo(() => {
     const members = asArray(room.members);
@@ -524,7 +545,6 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
       .filter((visual) => {
         const visualId = normalizeVisualId(visual.id);
         if (visualIdsFromThread.has(visualId)) return false;
-        if (sourceType !== 'main') return true;
         return importedVisualIdSet.has(visualId);
       })
       .map((visual) => ({
@@ -878,17 +898,18 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     }
 
     setIsVisualPickerOpen(true);
-    setNotice(`"${activeProject.title}" 시각화 보관함에서 가져올 자료를 선택해주세요.`);
+    setNotice(`"${visualLibraryProject?.title || activeProject.title}" 시각화 보관함에서 가져올 자료를 선택해주세요.`);
   };
 
   const handleImportVisualAsset = (visual) => {
     if (!activeProject || !visual?.id) return;
+    const visualSourceProject = visualLibraryProject || activeProject;
     const visualId = normalizeVisualId(visual.id);
     const alreadyImported = importedVisualIdSet.has(visualId);
 
     setRoom((prev) => ({
       ...prev,
-      loadedProjectIds: Array.from(new Set([...prev.loadedProjectIds, activeProject.id])),
+      loadedProjectIds: Array.from(new Set([...prev.loadedProjectIds, activeProject.id, visualSourceProject.id].filter(Boolean))),
       importedVisualIds: Array.from(new Set([...asArray(prev.importedVisualIds), visual.id, visualId])),
       importedVisuals: alreadyImported
         ? asArray(prev.importedVisuals)
@@ -897,7 +918,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
             {
               id: visual.id,
               visualId,
-              projectId: activeProject.id,
+              projectId: visualSourceProject.id,
               importedAt: Date.now(),
             },
           ],
@@ -1537,7 +1558,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
           <div className="picker-title">
             <h3>시각화 보관함</h3>
             <span className="picker-desc">
-              {activeProject?.title || '프로젝트'}에 저장된 표, 이미지 추출 결과, 그래프 중 공유할 자료를 선택하세요.
+              {visualLibraryProject?.title || activeProject?.title || '프로젝트'}에 저장된 표, 이미지 추출 결과, 그래프 중 공유할 자료를 선택하세요.
             </span>
           </div>
           <button type="button" className="close-btn" onClick={() => setIsVisualPickerOpen(false)} aria-label="닫기">
