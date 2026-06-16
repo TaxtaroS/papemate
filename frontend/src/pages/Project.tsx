@@ -63,6 +63,11 @@ const renderDetailedVisualPreview = (asset: any) => {
   return <DynamicVisualizer config={asset} fallbackTitle={asset.title} />;
 };
 
+const getImageVisualItem = (visual: any = {}) => {
+  if (!['image', 'diagram_image', 'table_image', 'chart_image'].includes(visual.kind || visual.type)) return null;
+  return asArray(visual.items).find((item) => item?.dataUrl || item?.previewText || item?.ocrText || item?.tableText) || null;
+};
+
 const makeSafeFilename = (name = 'papermate-report') =>
   String(name)
     .replace(/[\\/:*?"<>|]+/g, '_')
@@ -707,6 +712,20 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
   };
 
   const renderVisualPreview = (visual, isDrawer = false) => {
+    const imageItem = getImageVisualItem(visual);
+    if (!isDrawer && imageItem) {
+      const previewText = imageItem.previewText || imageItem.ocrText || imageItem.tableText || visual.desc || visual.text || '';
+      return (
+        <div className="image-visual-thumb">
+          {imageItem.dataUrl ? (
+            <img src={imageItem.dataUrl} alt={imageItem.name || visual.title || '추출 이미지'} />
+          ) : (
+            <span>{previewText || '이미지 미리보기'}</span>
+          )}
+        </div>
+      );
+    }
+
     // 메인 그리드 카드의 넓은 가로 비율(약 4:1)에 맞추기 위해 렌더링 영역의 가로폭을 크게 설정합니다.
     const containerWidth = isDrawer ? 350 : 400;
     const containerHeight = isDrawer ? 180 : 80;

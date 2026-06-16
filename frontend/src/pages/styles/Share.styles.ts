@@ -816,6 +816,35 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
     padding: 8px 10px 14px 10px !important;
   }
 
+  .visual-preview .image-visual-thumb {
+    width: 100%;
+    min-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  .visual-preview .image-visual-thumb img {
+    width: 100%;
+    max-height: 320px;
+    object-fit: contain;
+    display: block;
+  }
+
+  .visual-preview .image-visual-thumb span {
+    padding: 18px;
+    display: -webkit-box;
+    -webkit-line-clamp: 6;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   .mini-visual {
     width: min(360px, 78%);
     height: 110px;
@@ -1414,8 +1443,11 @@ export const ProjectPickerPanel = styled.div`
 `;
 
 export const ProjectPickerGrid = styled.div`
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  align-content: start;
   gap: 16px;
   padding: 24px;
   overflow-y: auto;
@@ -1459,6 +1491,36 @@ export const VisualPickerCard = styled.button<{ $loaded?: boolean }>`
     height: 132px;
     background: #f8fafc;
     border-bottom: 1px solid #e2e8f0;
+    overflow: hidden;
+  }
+
+  .image-visual-thumb {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.45;
+    text-align: center;
+    overflow: hidden;
+  }
+
+  .image-visual-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+
+  .image-visual-thumb span {
+    padding: 12px;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
     overflow: hidden;
   }
 

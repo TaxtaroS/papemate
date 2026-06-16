@@ -97,6 +97,33 @@ export const VisualCard = styled.div`
     font-size: 24px; color: #0ea5a4; 
     position: relative; overflow: hidden;
   }
+  .image-visual-thumb {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.45;
+    text-align: center;
+    overflow: hidden;
+  }
+  .image-visual-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+  .image-visual-thumb span {
+    padding: 10px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .mini-visual {
     width: 78%;
     height: 56px;

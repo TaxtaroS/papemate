@@ -228,7 +228,9 @@ const hasVisualPayload = (asset = {}) => {
   const rows = Array.isArray(asset.rows) ? asset.rows : [];
   const columns = Array.isArray(asset.columns) ? asset.columns : [];
   const series = Array.isArray(asset.series) ? asset.series : [];
-  return data.length > 0 || rows.length > 0 || columns.length > 0 || series.length > 0;
+  const items = Array.isArray(asset.items) ? asset.items : [];
+  const kind = asset.kind || asset.type;
+  return data.length > 0 || rows.length > 0 || columns.length > 0 || series.length > 0 || (kind === 'image' && items.length > 0);
 };
 
 const hasTimelineAssetContent = (asset = {}) => {
@@ -237,6 +239,11 @@ const hasTimelineAssetContent = (asset = {}) => {
   if (asset.type === 'visual') return hasVisualPayload(asset);
   if (asset.type === 'image') return Boolean(asset.dataUrl || asset.hasImage);
   return Boolean(String(asset.text || '').trim()) || hasVisualPayload(asset);
+};
+
+const getImageVisualItem = (visual: any = {}) => {
+  if (!['image', 'diagram_image', 'table_image', 'chart_image'].includes(visual.kind || visual.type)) return null;
+  return asArray(visual.items).find((item) => item?.dataUrl || item?.previewText || item?.ocrText || item?.tableText) || null;
 };
 
 const coerceGraphAsset = (asset, promptText = '') => {
@@ -1160,6 +1167,20 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
   };
 
   const renderVisualPreview = (asset) => {
+    const imageItem = getImageVisualItem(asset);
+    if (imageItem) {
+      const previewText = imageItem.previewText || imageItem.ocrText || imageItem.tableText || asset.desc || asset.text || '';
+      return (
+        <div className="image-visual-thumb">
+          {imageItem.dataUrl ? (
+            <img src={imageItem.dataUrl} alt={imageItem.name || asset.title || '추출 이미지'} />
+          ) : (
+            <span>{previewText || '이미지 미리보기'}</span>
+          )}
+        </div>
+      );
+    }
+
     if (asset.data || asset.columns || asset.series || ['chart', 'table', 'mindmap'].includes(asset.kind || asset.type)) {
       return <DynamicVisualizer config={asset} fallbackTitle={asset.title} />;
     }
