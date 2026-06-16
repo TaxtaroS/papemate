@@ -133,6 +133,7 @@ const getProjectOwner = (project, room) =>
   '프로젝트 주인';
 
 const normalizeVisualId = (id) => String(id || '').replace(/^(thread-|visual-|saved-)+/, '');
+const imageVisualKinds = new Set(['image', 'diagram_image', 'table_image', 'chart_image']);
 
 const getNumericOrder = (value, fallback = 0) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -230,7 +231,7 @@ const hasVisualPayload = (asset = {}) => {
   const series = Array.isArray(asset.series) ? asset.series : [];
   const items = Array.isArray(asset.items) ? asset.items : [];
   const kind = asset.kind || asset.type;
-  return data.length > 0 || rows.length > 0 || columns.length > 0 || series.length > 0 || (kind === 'image' && items.length > 0);
+  return data.length > 0 || rows.length > 0 || columns.length > 0 || series.length > 0 || (imageVisualKinds.has(kind) && items.length > 0);
 };
 
 const hasTimelineAssetContent = (asset = {}) => {
@@ -242,8 +243,28 @@ const hasTimelineAssetContent = (asset = {}) => {
 };
 
 const getImageVisualItem = (visual: any = {}) => {
-  if (!['image', 'diagram_image', 'table_image', 'chart_image'].includes(visual.kind || visual.type)) return null;
+  if (!imageVisualKinds.has(visual.kind || visual.type)) return null;
   return asArray(visual.items).find((item) => item?.dataUrl || item?.previewText || item?.ocrText || item?.tableText) || null;
+};
+
+const mergeProjectForShare = (baseProject = {}, incomingProject = {}) => {
+  const baseVisuals = asArray(baseProject.visuals);
+  const incomingVisuals = asArray(incomingProject.visuals);
+  const preferredVisuals = incomingVisuals.length > baseVisuals.length ? incomingVisuals : baseVisuals;
+  const preferredThread = asArray(incomingProject.thread).length > asArray(baseProject.thread).length
+    ? incomingProject.thread
+    : baseProject.thread;
+
+  return {
+    ...baseProject,
+    ...incomingProject,
+    thread: preferredThread,
+    visuals: preferredVisuals,
+    charts: Math.max(Number(baseProject.charts || 0), Number(incomingProject.charts || 0), preferredVisuals.length),
+    discussionImages: asArray(incomingProject.discussionImages).length > asArray(baseProject.discussionImages).length
+      ? incomingProject.discussionImages
+      : baseProject.discussionImages,
+  };
 };
 
 const coerceGraphAsset = (asset, promptText = '') => {
@@ -342,26 +363,31 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
   // 로컬 프로젝트와 공유 프로젝트를 합쳐서 하나의 프로젝트 목록으로 만듭니다.
   // 공유본의 이미지를 항상 우선으로 반영합니다.
   const allProjects = useMemo(() => {
-    const mergedProjects = new Map();
+    const mergedProjects = [];
+
+    const upsertProject = (project) => {
+      if (!project?.id && !project?.inviteCode) return;
+      const existingIndex = mergedProjects.findIndex(
+        (item) =>
+          (project.id && item.id === project.id) ||
+          (project.inviteCode && item.inviteCode === project.inviteCode)
+      );
+      if (existingIndex < 0) {
+        mergedProjects.push(project);
+        return;
+      }
+      mergedProjects[existingIndex] = mergeProjectForShare(mergedProjects[existingIndex], project);
+    };
 
     asArray(projects).forEach((project) => {
-      if (!project?.id) return;
-      mergedProjects.set(project.id, project);
+      upsertProject(project);
     });
 
     asArray(sharedProjects).forEach((project) => {
-      if (!project?.id) return;
-      const localProject = mergedProjects.get(project.id) || {};
-      // 다른 계정으로 접속했을 때도 이미지/코멘트가 최신 공유본 기준으로 보이도록 공유 저장소 데이터를 우선한다.
-      mergedProjects.set(project.id, {
-        ...localProject,
-        ...project,
-        thread: asArray(localProject.thread).length > 0 ? localProject.thread : project.thread,
-        visuals: asArray(localProject.visuals).length > 0 ? localProject.visuals : project.visuals,
-      });
+      upsertProject(project);
     });
 
-    return Array.from(mergedProjects.values());
+    return mergedProjects;
   }, [projects, sharedProjects]);
 
   const loadedProjects = useMemo(
@@ -375,6 +401,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
   const hasActiveShare = Boolean(activeShareCode);
   const activeProject = hasActiveShare
     ? allProjects.find((project) => project.id === room.mainProjectId) ||
+      allProjects.find((project) => project.inviteCode === activeShareCode) ||
       allProjects.find((project) => project.id === selectedProjectId) ||
       loadedProjects[0]
     : null;
