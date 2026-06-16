@@ -420,29 +420,21 @@ const EvidenceMarkdown = ({ text }) => {
   );
 };
 
-const splitRevealChunks = (text = '') => {
-  const chunks: string[] = [];
-  String(text || '')
-    .split('\n')
-    .forEach((line) => {
-      if (!line.trim()) {
-        chunks.push('');
-        return;
-      }
+const TYPEWRITER_CHAR_DELAY_MS = 200;
 
-      const isStructuredLine = /^(\s*[-*+]\s+|\s*\d+[.)]\s+|\s{0,3}#{1,6}\s+|\s*\|)/.test(line);
-      const sentenceParts = line.match(/[^.!?。！？\n]+[.!?。！？]?/g) || [line];
-      const shouldSplitSentences = !isStructuredLine && line.length > 72 && sentenceParts.length > 1;
+const splitRevealCharacters = (text = '') => {
+  const value = String(text || '');
+  if (!value) return [''];
 
-      if (shouldSplitSentences) {
-        sentenceParts.map((part) => part.trim()).filter(Boolean).forEach((part) => chunks.push(part));
-        return;
-      }
+  const Segmenter = typeof Intl !== 'undefined' ? (Intl as any).Segmenter : null;
+  if (Segmenter) {
+    return Array.from(
+      new Segmenter('ko', { granularity: 'grapheme' }).segment(value),
+      (part: any) => part.segment
+    );
+  }
 
-      chunks.push(line);
-    });
-
-  return chunks.length > 0 ? chunks : [''];
+  return Array.from(value);
 };
 
 const shouldRevealMessage = (message: any = {}) => {
@@ -452,44 +444,44 @@ const shouldRevealMessage = (message: any = {}) => {
 };
 
 const ProgressiveEvidenceMarkdown = ({ text, animate = false, onProgress }: { text: string; animate?: boolean; onProgress?: () => void }) => {
-  const chunks = useMemo(() => splitRevealChunks(text), [text]);
-  const [visibleCount, setVisibleCount] = useState(() => (animate ? 1 : chunks.length));
-  const isComplete = visibleCount >= chunks.length;
+  const characters = useMemo(() => splitRevealCharacters(text), [text]);
+  const [visibleCount, setVisibleCount] = useState(() => (animate ? 1 : characters.length));
+  const isComplete = visibleCount >= characters.length;
 
   useEffect(() => {
     if (!animate) {
-      setVisibleCount(chunks.length);
+      setVisibleCount(characters.length);
       return undefined;
     }
 
     setVisibleCount(1);
     if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      setVisibleCount(chunks.length);
+      setVisibleCount(characters.length);
       return undefined;
     }
 
     const timer = window.setInterval(() => {
       setVisibleCount((current) => {
-        const next = Math.min(current + 1, chunks.length);
-        if (next >= chunks.length) window.clearInterval(timer);
+        const next = Math.min(current + 1, characters.length);
+        if (next >= characters.length) window.clearInterval(timer);
         return next;
       });
       onProgress?.();
-    }, 165);
+    }, TYPEWRITER_CHAR_DELAY_MS);
 
     return () => window.clearInterval(timer);
-  }, [animate, chunks.length, onProgress]);
+  }, [animate, characters.length, onProgress]);
 
   useEffect(() => {
     if (animate) onProgress?.();
   }, [animate, visibleCount, onProgress]);
 
-  const visibleText = chunks.slice(0, visibleCount).join('\n');
+  const visibleText = characters.slice(0, visibleCount).join('');
 
   return (
-    <div className={animate && !isComplete ? 'line-reveal active' : 'line-reveal'}>
+    <div className={animate && !isComplete ? 'typewriter-reveal active' : 'typewriter-reveal'}>
       <EvidenceMarkdown text={visibleText} />
-      {animate && !isComplete && <span className="line-reveal-caret" aria-hidden="true" />}
+      {animate && !isComplete && <span className="typewriter-reveal-caret" aria-hidden="true" />}
     </div>
   );
 };

@@ -466,15 +466,15 @@ export const AiRow = styled.div`
   .markdown-body {
     font-family: inherit;
 
-    .line-reveal {
+    .typewriter-reveal {
       position: relative;
     }
 
-    .line-reveal.active {
+    .typewriter-reveal.active {
       animation: reveal-soften 0.18s ease-out;
     }
 
-    .line-reveal-caret {
+    .typewriter-reveal-caret {
       display: inline-block;
       width: 7px;
       height: 1.15em;
