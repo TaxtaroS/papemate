@@ -96,9 +96,12 @@ export const DynamicVisualizer = ({
   
   // 구버전(rows, kind) 호환성 유지
   const safeData = Array.isArray(data) && data.length > 0 ? data : (Array.isArray(rows) ? rows : []);
+  const visualKindType = kind === 'graph' ? 'chart' : kind;
   const actualType = (chartType || (Array.isArray(series) && series.length > 0))
     ? 'chart'
-    : type || (kind === 'graph' ? 'chart' : kind) || 'table';
+    : type === 'visual'
+      ? visualKindType || 'chart'
+      : type || visualKindType || 'table';
 
   const renderImageExtraction = () => {
     const imageItems = Array.isArray(items) ? items : [];
