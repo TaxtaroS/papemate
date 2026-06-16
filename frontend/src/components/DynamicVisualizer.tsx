@@ -15,7 +15,15 @@ import {
   ResponsiveContainer
 } from 'recharts';
 
-export const DynamicVisualizer = ({ config, fallbackTitle }: { config: any, fallbackTitle?: string }) => {
+export const DynamicVisualizer = ({
+  config,
+  fallbackTitle,
+  onSaveImageItem,
+}: {
+  config: any,
+  fallbackTitle?: string,
+  onSaveImageItem?: (item: any, index: number) => void,
+}) => {
   // If config is string, try to parse
   let parsed = config;
   if (typeof parsed === 'string') {
@@ -145,7 +153,29 @@ export const DynamicVisualizer = ({ config, fallbackTitle }: { config: any, fall
                     {extractedText}
                   </p>
                 )}
-                {item.dataUrl && (
+                {item.dataUrl && onSaveImageItem && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSaveImageItem(item, index);
+                    }}
+                    style={{
+                      justifySelf: 'start',
+                      border: '1px solid #0f766e',
+                      background: '#ffffff',
+                      color: '#0f766e',
+                      borderRadius: 6,
+                      padding: '6px 9px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    프로젝트 시각화에 저장
+                  </button>
+                )}
+                {item.dataUrl && !onSaveImageItem && (
                   <a
                     href={item.dataUrl}
                     download={item.name || `extracted-image-${index + 1}.png`}

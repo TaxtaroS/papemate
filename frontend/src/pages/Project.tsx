@@ -36,7 +36,7 @@ import { projectAPI } from '../services/api';
 import { VisualArtifact } from './styles/AnalysisLocal.styles';
 
 const MAX_PROJECTS = 10;
-const MAX_VISUALS = 10;
+const MAX_VISUALS = 50;
 const defaultProjects = [];
 
 const splitMeaningfulLines = (text) =>
@@ -772,7 +772,7 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
 
         {visualLimitReached && (
           <div style={{ margin: '-8px 0 16px 0', color: '#64748b', fontSize: '12.5px', fontWeight: 700 }}>
-            시각화 보관함은 최대 10개까지 저장됩니다. 새 시각화를 저장하려면 기존 항목을 삭제해주세요.
+            시각화 보관함은 최대 {MAX_VISUALS}개까지 저장됩니다. 새 시각화를 저장하려면 기존 항목을 삭제해주세요.
           </div>
         )}
 

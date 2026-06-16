@@ -36,7 +36,7 @@ import {
 } from '../utils/storageKeys';
 
 const MAX_PROJECTS = 10;
-const MAX_VISUALS = 10;
+const MAX_VISUALS = 50;
 const MAX_RECENT_CONVERSATIONS = 50;
 const MAX_SUGGESTED_FOLLOWUP_DEPTH = 3;
 
@@ -906,11 +906,12 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     const nextFiles = mergeUniqueFiles(files, selectedFiles);
     if (pendingVisualType) {
       const nextActiveFiles = mergeUniqueFiles(activeFiles, nextFiles);
+      const visualRequestFiles = pendingVisualType === 'image' ? [selectedFiles[0]].filter(Boolean) : nextFiles;
       setFiles([]);
       setActiveFiles(nextActiveFiles);
       setSelectedSourceKey(getFileKey(selectedFiles[0]));
       saveSourceFiles([recentConversationIdRef.current, effectiveProjectId], nextActiveFiles);
-      handleCreateVisualFromFiles(pendingVisualType, nextFiles, nextActiveFiles);
+      handleCreateVisualFromFiles(pendingVisualType, visualRequestFiles, nextActiveFiles);
       event.target.value = '';
       window.setTimeout(() => promptInputRef.current?.focus(), 0);
       return;
@@ -1024,7 +1025,14 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
         return;
       }
       if (activeFiles.length > 0) {
-        handleCreateVisualFromFiles('image', activeFiles, activeFiles);
+        const selectedImageSourceFile = selectedSourceFile && isUploadableFile(selectedSourceFile)
+          ? selectedSourceFile
+          : null;
+        if (!selectedImageSourceFile) {
+          window.alert('이미지를 추출할 미리보기 문서를 선택하거나 원본 파일을 다시 업로드해주세요.');
+          return;
+        }
+        handleCreateVisualFromFiles('image', [selectedImageSourceFile], activeFiles);
         return;
       }
       pendingVisualTypeRef.current = visualType;
@@ -1501,7 +1509,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       ? savedProjects.find((project) => project.id === effectiveProjectId)
       : null;
     if (existingProject && (existingProject.visuals || []).filter(isVisualStorageItem).length >= MAX_VISUALS) {
-      window.alert('시각화 보관함은 최대 10개까지 저장됩니다. 기존 시각화를 삭제해주세요.');
+      window.alert(`시각화 보관함은 최대 ${MAX_VISUALS}개까지 저장됩니다. 기존 시각화를 삭제해주세요.`);
       return;
     }
 
@@ -1545,8 +1553,32 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     }
   };
 
+  const saveImageItemToProject = (asset: any, item: any, index: number) => {
+    const sourceLabel = item?.source || item?.name || `추출 이미지 ${index + 1}`;
+    const extractedText = item?.previewText || item?.ocrText || item?.tableText || '';
+    const itemAsset = {
+      ...asset,
+      id: `visual-image-${Date.now()}-${index}`,
+      title: sourceLabel,
+      text: extractedText || asset?.text || `${sourceLabel} 이미지를 추출했습니다.`,
+      desc: extractedText || asset?.desc || asset?.text,
+      kind: 'image',
+      type: 'image',
+      items: [item],
+      saved: false,
+      createdAt: nowIso(),
+    };
+    saveVisualAssetToProject(itemAsset);
+  };
+
   const renderVisualPreview = (asset: any) => {
-    return <DynamicVisualizer config={asset} fallbackTitle={asset.title} />;
+    return (
+      <DynamicVisualizer
+        config={asset}
+        fallbackTitle={asset.title}
+        onSaveImageItem={(item, index) => saveImageItemToProject(asset, item, index)}
+      />
+    );
   };
 
   const toggleVisualExpanded = (visualId: string) => {

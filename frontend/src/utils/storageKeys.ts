@@ -19,6 +19,7 @@ const isQuotaExceededError = (error) =>
 
 const MAX_STORED_TEXT_LENGTH = 40000;
 const MAX_STORED_DATA_URL_LENGTH = 120000;
+const MAX_STORED_VISUALS = 50;
 
 const trimText = (text, limit = MAX_STORED_TEXT_LENGTH) =>
   typeof text === 'string' && text.length > limit ? text.slice(0, limit) : text;
@@ -55,7 +56,7 @@ const compactLocalProject = (project) => stripLargeDataUrls({
   ...project,
   files: Array.isArray(project?.files) ? project.files.slice(0, 30) : [],
   sourceProjects: Array.isArray(project?.sourceProjects) ? project.sourceProjects.slice(0, 8) : [],
-  visuals: Array.isArray(project?.visuals) ? project.visuals.slice(0, 10) : [],
+  visuals: Array.isArray(project?.visuals) ? project.visuals.slice(0, MAX_STORED_VISUALS) : [],
   thread: compactThreadItems(project?.thread),
   discussionImages: Array.isArray(project?.discussionImages)
     ? project.discussionImages.slice(0, 30).map(({ dataUrl, ...image }) => ({
@@ -122,7 +123,7 @@ export const compactProjectForSharedIndex = (project) => ({
   files: Array.isArray(project.files) ? project.files.slice(0, 20) : [],
   sourceProjects: Array.isArray(project.sourceProjects) ? project.sourceProjects.slice(0, 8) : [],
   visuals: Array.isArray(project.visuals)
-    ? project.visuals.slice(0, 10).map((visual) => ({
+    ? project.visuals.slice(0, MAX_STORED_VISUALS).map((visual) => ({
         id: visual.id,
         kind: visual.kind,
         type: visual.type,
