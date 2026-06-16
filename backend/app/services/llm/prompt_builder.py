@@ -295,7 +295,12 @@ def build_prompts(
     )
 
     system_prompt = core_prompt + (visual_mode_prompt if is_visual_request(question) else text_mode_prompt + "\n" + intent_prompt)
-    history_block = f"[Previous Conversation History]\n{analysis_text}\n\n" if analysis_text else ""
+    history_block = (
+        "[Previous Conversation History - continuity only, not evidence]\n"
+        f"{clip_text(analysis_text, 4000)}\n\n"
+        if analysis_text
+        else ""
+    )
     doc_block = f"[Uploaded Document Context]\n{document_context}\n\n" if document_context else ""
     web_block = f"[Web Search Context]\n{web_context}\n\n" if web_context else ""
 
@@ -308,7 +313,7 @@ def build_prompts(
 {intent} - {_intent_label(intent)}
 
 {doc_block}{web_block}{history_block}
-Use the uploaded document context as the only factual source unless a Web Search Context block is present. If Web Search Context is present, use it only to compare with the uploaded document and clearly label web-derived facts. Use previous conversation history only to understand continuity, never as a citation source or data source. If the answer is not directly supported by the uploaded document context or the explicit web context, say that it cannot be confirmed.
+Answer the current user request directly. Do not repeat or summarize the previous answer unless the current request explicitly asks for repetition. Use the uploaded document context as the only factual source unless a Web Search Context block is present. If Web Search Context is present, use it only to compare with the uploaded document and clearly label web-derived facts. Use previous conversation history only to understand continuity, never as a citation source, data source, or answer template. If the answer is not directly supported by the uploaded document context or the explicit web context, say that it cannot be confirmed.
 Important: Even if the uploaded document context is English, write the final analysis and summary in Korean.
 """
     else:
@@ -320,7 +325,7 @@ Important: Even if the uploaded document context is English, write the final ana
 analysis - {_intent_label("analysis")}
 
 {doc_block}{web_block}{history_block}
-Use the uploaded document context as the only factual source unless a Web Search Context block is present. If Web Search Context is present, use it only to compare with the uploaded document and clearly label web-derived facts. Use previous conversation history only to understand continuity, never as a citation source or data source. If the answer is not directly supported by the uploaded document context or the explicit web context, say that it cannot be confirmed.
+Answer the current user request directly. Do not repeat or summarize the previous answer unless the current request explicitly asks for repetition. Use the uploaded document context as the only factual source unless a Web Search Context block is present. If Web Search Context is present, use it only to compare with the uploaded document and clearly label web-derived facts. Use previous conversation history only to understand continuity, never as a citation source, data source, or answer template. If the answer is not directly supported by the uploaded document context or the explicit web context, say that it cannot be confirmed.
 Important: Even if the uploaded document context is English, write the final analysis and summary in Korean.
 """
     return system_prompt, user_prompt

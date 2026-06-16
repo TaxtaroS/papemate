@@ -112,7 +112,9 @@ def extract_chunk_with_openai(
     else:
         prompt = (
             "You are a fast document extraction assistant.\n"
-            "Extract the most important facts, numbers, named entities, claims, methods, and conclusions from the text chunk below.\n"
+            f"The user's current question is: '{question or '문서의 전반적인 내용을 분석해줘'}'.\n"
+            "Extract facts, numbers, named entities, claims, methods, and conclusions from the text chunk below that are most relevant to the current question.\n"
+            "If the chunk has little direct relevance, return only the few generally useful facts instead of a broad summary.\n"
             "Keep the original meaning, but write concise bullet points in Korean. Preserve proper nouns, technical terms, numbers, and citations when needed.\n\n"
             f"[Text Chunk]\n{chunk}"
         )
