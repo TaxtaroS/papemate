@@ -420,7 +420,8 @@ const EvidenceMarkdown = ({ text }) => {
   );
 };
 
-const TYPEWRITER_CHAR_DELAY_MS = 200;
+const TYPEWRITER_CHAR_DELAY_MS = 70;
+const TYPEWRITER_CURSOR = '▌';
 
 const splitRevealCharacters = (text = '') => {
   const value = String(text || '');
@@ -476,12 +477,11 @@ const ProgressiveEvidenceMarkdown = ({ text, animate = false, onProgress }: { te
     if (animate) onProgress?.();
   }, [animate, visibleCount, onProgress]);
 
-  const visibleText = characters.slice(0, visibleCount).join('');
+  const visibleText = `${characters.slice(0, visibleCount).join('')}${animate && !isComplete ? TYPEWRITER_CURSOR : ''}`;
 
   return (
     <div className={animate && !isComplete ? 'typewriter-reveal active' : 'typewriter-reveal'}>
       <EvidenceMarkdown text={visibleText} />
-      {animate && !isComplete && <span className="typewriter-reveal-caret" aria-hidden="true" />}
     </div>
   );
 };
