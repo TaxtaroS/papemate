@@ -420,7 +420,7 @@ const EvidenceMarkdown = ({ text }) => {
   );
 };
 
-const TYPEWRITER_CHAR_DELAY_MS = 70;
+const TYPEWRITER_CHAR_DELAY_MS = 50;
 const TYPEWRITER_CURSOR = '▌';
 
 const splitRevealCharacters = (text = '') => {
