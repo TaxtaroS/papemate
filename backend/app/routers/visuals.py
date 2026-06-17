@@ -31,7 +31,11 @@ async def create_visual(
     for upload in files:
         content = await read_upload_content(upload)
         try:
-            extracted_doc = extract_file_document(upload.filename or "unknown", content)
+            extracted_doc = extract_file_document(
+                upload.filename or "unknown",
+                content,
+                openai_api_key=openai_api_key.strip() or None,
+            )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"{upload.filename or '파일'} 분석 중 오류가 발생했습니다: {exc}") from exc
 

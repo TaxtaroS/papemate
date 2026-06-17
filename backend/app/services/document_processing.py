@@ -17,6 +17,7 @@ from app.services.extractors.image_extractor import (
 from app.services.extractors.pdf_extractor import extract_pdf, extract_pdf_units
 from app.services.extractors.text_extractor import TEXT_EXTENSIONS, extract_docx, extract_text
 from app.services.visual_buttons.image.extraction import (
+    extract_hwp_visual_assets,
     extract_pdf_visual_assets,
     extract_zipped_visual_assets,
     visual_assets_to_source_units,
@@ -93,14 +94,14 @@ def _document_from_units(
     }
 
 
-def extract_file_document(filename: str, content: bytes) -> dict:
+def extract_file_document(filename: str, content: bytes, openai_api_key: str | None = None) -> dict:
     extension = Path(filename).suffix.lower()
     if extension == ".pdf":
         return _document_from_units(
             filename,
             "PDF",
             extract_pdf_units(content),
-            visual_assets=extract_pdf_visual_assets(content, filename),
+            visual_assets=extract_pdf_visual_assets(content, filename, openai_api_key=openai_api_key),
         )
 
     if extension == ".hwpx":
@@ -113,7 +114,7 @@ def extract_file_document(filename: str, content: bytes) -> dict:
             filename,
             "HWPX/OWPML",
             [{"section_index": 1, "text": text}],
-            visual_assets=extract_zipped_visual_assets(content, filename),
+            visual_assets=extract_zipped_visual_assets(content, filename, openai_api_key=openai_api_key),
         )
 
     if extension == ".docx":
@@ -121,7 +122,7 @@ def extract_file_document(filename: str, content: bytes) -> dict:
             filename,
             "DOCX",
             [{"section_index": 1, "text": extract_docx(content)}],
-            visual_assets=extract_zipped_visual_assets(content, filename),
+            visual_assets=extract_zipped_visual_assets(content, filename, openai_api_key=openai_api_key),
         )
 
     if extension in TEXT_EXTENSIONS:
@@ -132,19 +133,29 @@ def extract_file_document(filename: str, content: bytes) -> dict:
             filename,
             "IMAGE",
             [{"section_index": 1, "text": inspect_image(content)}],
-            visual_assets=extract_uploaded_image_assets(filename, content),
+            visual_assets=extract_uploaded_image_assets(filename, content, openai_api_key=openai_api_key),
         )
 
     if extension == ".hwp":
         text = extract_hwp(content)
         if text and not _is_hwp_extraction_failure(text):
-            return _document_from_units(filename, "HWP", [{"section_index": 1, "text": text}])
+            return _document_from_units(
+                filename,
+                "HWP",
+                [{"section_index": 1, "text": text}],
+                visual_assets=extract_hwp_visual_assets(content, filename, document_text=text, openai_api_key=openai_api_key),
+            )
 
         parsed = parse_document(content, filename)
         parsed_text = _parsed_text_or_message(parsed, "")
         if parsed_text:
             text = parsed_text
-        return _document_from_units(filename, "HWP", [{"section_index": 1, "text": text}])
+        return _document_from_units(
+            filename,
+            "HWP",
+            [{"section_index": 1, "text": text}],
+            visual_assets=extract_hwp_visual_assets(content, filename, document_text=text, openai_api_key=openai_api_key),
+        )
 
     return _document_from_units(filename, "UNKNOWN", [{"section_index": 1, "text": "지원하지 않는 파일 형식입니다."}])
 

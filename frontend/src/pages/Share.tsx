@@ -133,7 +133,7 @@ const getProjectOwner = (project, room) =>
   '프로젝트 주인';
 
 const normalizeVisualId = (id) => String(id || '').replace(/^(thread-|visual-|saved-)+/, '');
-const imageVisualKinds = new Set(['image', 'diagram_image', 'table_image', 'chart_image']);
+const imageVisualKinds = new Set(['image', 'diagram_image', 'table_image', 'chart_image', 'code_image', 'profile_image', 'screenshot_image', 'photo_image']);
 
 const getNumericOrder = (value, fallback = 0) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -254,7 +254,7 @@ const hasTimelineAssetContent = (asset = {}) => {
 
 const getImageVisualItem = (visual: any = {}) => {
   if (!imageVisualKinds.has(visual.kind || visual.type)) return null;
-  return asArray(visual.items).find((item) => item?.dataUrl || item?.previewText || item?.ocrText || item?.tableText) || null;
+  return asArray(visual.items).find((item) => item?.dataUrl || item?.previewText || item?.ocrText || item?.tableText || item?.documentText || item?.visionText || item?.mergedText) || null;
 };
 
 const mergeProjectForShare = (baseProject = {}, incomingProject = {}) => {
@@ -1217,7 +1217,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
   const renderVisualPreview = (asset) => {
     const imageItem = getImageVisualItem(asset);
     if (imageItem) {
-      const previewText = imageItem.previewText || imageItem.ocrText || imageItem.tableText || asset.desc || asset.text || '';
+      const previewText = imageItem.mergedText || imageItem.visionText || imageItem.tableText || imageItem.ocrText || imageItem.documentText || imageItem.previewText || asset.desc || asset.text || '';
       return (
         <div className="image-visual-thumb">
           {imageItem.dataUrl ? (

@@ -54,6 +54,14 @@ const createInviteCode = () => {
 
 const formatDate = () => new Date().toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1);
 const nowIso = () => new Date().toISOString();
+const nowMs = () =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+const formatResponseDuration = (elapsedMs) => {
+  const seconds = Math.max(0, elapsedMs / 1000);
+  return seconds < 10 ? seconds.toFixed(2) : seconds.toFixed(1);
+};
 const formatDateTime = (value) => {
   if (!value) return '';
   const text = String(value).trim();
@@ -1234,12 +1242,14 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
 
     try {
       const analysisHistory = hasNewUpload ? '' : getLatestAnalysisText(messages);
+      const responseStartedAt = nowMs();
       const response = await analysisAPI.chat(question, requestFiles, {
         conversationId: recentConversationIdRef.current,
         llmProvider,
         selectedSourceName: compareMode ? '' : selectedUploadFile?.name || selectedFileAfterUpload?.name || '',
         compareMode,
       }, analysisHistory);
+      const responseElapsedMs = nowMs() - responseStartedAt;
       const providerLabelMap: Record<string, string> = {
         openai: 'OpenAI',
         gemini: 'Gemini',
@@ -1251,6 +1261,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
           : `\n\n분석 엔진: 로컬 기본 분석`
         : '';
       const answer = response.data?.answer || response.data?.summary || buildLocalFallbackAnswer(question, pendingFiles, messages);
+      const responseTimeNote = `\n\n답변까지 걸린 시간: ${formatResponseDuration(responseElapsedMs)}초`;
       const successMessage = hasNewUpload
         ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${uploadedFileNames}`, createdAt: nowIso() }
         : null;
@@ -1295,7 +1306,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
           return visualId && !prev.includes(visualId) ? [visualId, ...prev] : prev;
         });
       } else {
-        messagesWithAnswer.push({ id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}`, createdAt: nowIso(), suggestedDepth, suggestedQuestions });
+        messagesWithAnswer.push({ id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}${responseTimeNote}`, createdAt: nowIso(), suggestedDepth, suggestedQuestions });
       }
 
       setMessages(messagesWithAnswer);
@@ -1555,7 +1566,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
 
   const saveImageItemToProject = (asset: any, item: any, index: number) => {
     const sourceLabel = item?.source || item?.name || `추출 이미지 ${index + 1}`;
-    const extractedText = item?.previewText || item?.ocrText || item?.tableText || '';
+    const extractedText = item?.mergedText || item?.visionText || item?.tableText || item?.ocrText || item?.documentText || item?.previewText || '';
     const itemAsset = {
       ...asset,
       id: `visual-image-${Date.now()}-${index}`,

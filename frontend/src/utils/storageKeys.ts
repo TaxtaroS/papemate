@@ -104,6 +104,13 @@ const compactVisualItems = (items) =>
         height: item.height,
         mimeType: item.mimeType,
         ocrText: item.ocrText,
+        tableText: item.tableText,
+        documentText: item.documentText,
+        visionText: item.visionText,
+        visionData: item.visionData,
+        visionModel: item.visionModel,
+        visionError: item.visionError,
+        mergedText: item.mergedText,
         previewText: item.previewText,
         hasImage: Boolean(item.dataUrl || item.hasImage),
       }))

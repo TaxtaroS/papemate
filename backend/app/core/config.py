@@ -102,6 +102,7 @@ class Settings:
     hwp_parser_timeout_seconds: int
     openai_api_key: str
     openai_model: str
+    openai_vision_model: str
     anthropic_api_key: str
     anthropic_vision_model: str
     google_api_key: str
@@ -176,6 +177,7 @@ def create_settings() -> Settings:
         hwp_parser_timeout_seconds=_env_int("HWP_PARSER_TIMEOUT_SECONDS", 30),
         openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip(),
+        openai_vision_model=os.getenv("OPENAI_VISION_MODEL", "gpt-4o").strip(),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
         anthropic_vision_model=os.getenv("ANTHROPIC_VISION_MODEL", "claude-3-5-sonnet-20241022").strip(),
         google_api_key=os.getenv("GOOGLE_API_KEY", "").strip(),

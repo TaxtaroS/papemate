@@ -173,6 +173,12 @@ def create_image_visual(extracted_docs: list[dict], analysis_text: str, openai_a
                 "mimeType": visual.get("mime_type"),
                 "ocrText": visual.get("ocr_text") or "",
                 "tableText": visual.get("table_text") or "",
+                "documentText": visual.get("document_text") or "",
+                "visionText": visual.get("vision_text") or "",
+                "visionData": visual.get("vision_data") or {},
+                "visionModel": visual.get("vision_model"),
+                "visionError": visual.get("vision_error"),
+                "mergedText": visual.get("merged_text") or "",
                 "previewText": clean_line(visual.get("text", "")),
                 "dataUrl": visual.get("data_url"),
             }
@@ -186,7 +192,7 @@ def create_image_visual(extracted_docs: list[dict], analysis_text: str, openai_a
             "source": item["source"],
             "kind": item["kind"],
             "name": item["name"],
-            "summary": item["tableText"] or item["ocrText"] or item["previewText"] or "이미지/차트 후보",
+            "summary": item["mergedText"] or item["visionText"] or item["tableText"] or item["ocrText"] or item["documentText"] or item["previewText"] or "이미지/차트 후보",
         }
         for item in extracted_items
     ]
@@ -215,7 +221,7 @@ def create_image_visual(extracted_docs: list[dict], analysis_text: str, openai_a
             "details": [
                 {
                     "lbl": item["source"],
-                    "val": item["tableText"] or item["ocrText"] or item["previewText"] or item["name"],
+                    "val": item["mergedText"] or item["visionText"] or item["tableText"] or item["ocrText"] or item["documentText"] or item["previewText"] or item["name"],
                 }
                 for item in extracted_items[:8]
             ],

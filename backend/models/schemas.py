@@ -104,6 +104,7 @@ class VisualAsset(BaseModel):
     desc: str | None = None
     details: list[Any] = Field(default_factory=list)
     rows: list[dict[str, Any]] = Field(default_factory=list)
+    items: list[dict[str, Any]] = Field(default_factory=list)
     dataUrl: str | None = None
     saved: bool = False
     date: str | None = None

@@ -116,7 +116,7 @@ export const DynamicVisualizer = ({
     return (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
         {imageItems.map((item: any, index: number) => {
-          const extractedText = item.tableText || item.ocrText || item.previewText || '';
+          const extractedText = item.mergedText || item.visionText || item.tableText || item.ocrText || item.documentText || item.previewText || '';
           return (
             <article
               key={item.id || `${item.source}-${index}`}

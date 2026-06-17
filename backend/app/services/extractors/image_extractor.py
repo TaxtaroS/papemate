@@ -148,5 +148,5 @@ def inspect_image(content: bytes) -> str:
     return understand_image(content)
 
 
-def extract_uploaded_image_assets(filename: str, content: bytes) -> list[dict]:
-    return summarize_uploaded_image(filename, content, source_label=filename)
+def extract_uploaded_image_assets(filename: str, content: bytes, openai_api_key: str | None = None) -> list[dict]:
+    return summarize_uploaded_image(filename, content, source_label=filename, openai_api_key=openai_api_key)

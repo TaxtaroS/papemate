@@ -64,8 +64,8 @@ const renderDetailedVisualPreview = (asset: any) => {
 };
 
 const getImageVisualItem = (visual: any = {}) => {
-  if (!['image', 'diagram_image', 'table_image', 'chart_image'].includes(visual.kind || visual.type)) return null;
-  return asArray(visual.items).find((item) => item?.dataUrl || item?.previewText || item?.ocrText || item?.tableText) || null;
+  if (!['image', 'diagram_image', 'table_image', 'chart_image', 'code_image', 'profile_image', 'screenshot_image', 'photo_image'].includes(visual.kind || visual.type)) return null;
+  return asArray(visual.items).find((item) => item?.dataUrl || item?.previewText || item?.ocrText || item?.tableText || item?.documentText || item?.visionText || item?.mergedText) || null;
 };
 
 const makeSafeFilename = (name = 'papermate-report') =>
@@ -714,7 +714,7 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
   const renderVisualPreview = (visual, isDrawer = false) => {
     const imageItem = getImageVisualItem(visual);
     if (!isDrawer && imageItem) {
-      const previewText = imageItem.previewText || imageItem.ocrText || imageItem.tableText || visual.desc || visual.text || '';
+      const previewText = imageItem.mergedText || imageItem.visionText || imageItem.tableText || imageItem.ocrText || imageItem.documentText || imageItem.previewText || visual.desc || visual.text || '';
       return (
         <div className="image-visual-thumb">
           {imageItem.dataUrl ? (

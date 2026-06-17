@@ -102,7 +102,11 @@ async def analyze_chat(
         # 파일 확장자에 따라 PDF/HWPX/DOCX/이미지/TXT 추출기가 선택됩니다.
         # 결과 text는 이후 기본 분석과 LLM 분석의 공통 입력이 됩니다.
         try:
-            extracted_doc = extract_file_document(upload.filename or "unknown", content)
+            extracted_doc = extract_file_document(
+                upload.filename or "unknown",
+                content,
+                openai_api_key=openai_api_key.strip() or None,
+            )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"{upload.filename or '파일'} 분석 중 오류가 발생했습니다: {exc}") from exc
 
