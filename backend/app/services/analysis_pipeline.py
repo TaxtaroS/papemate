@@ -15,6 +15,7 @@ from .fallback_analysis import (
     build_empty_context_answer,
 )
 from .analysis.compare_builder import build_document_compare_answer
+from .analysis.compare_llm import build_llm_compare_analysis
 from .analysis.grounding import validate_grounding
 from .analysis.query_analyzer import is_compare_request
 from .llm.service import analyze_with_llm
@@ -381,16 +382,42 @@ def run_analysis_pipeline(
             "suggested_questions": [],
         })
 
-    if should_compare_documents:
+    compare_llm_error = None
+    if should_compare_documents and not is_visual_request and llm_key_received:
+        compare_llm = build_llm_compare_analysis(
+            question,
+            extracted_docs,
+            provider=selected_provider,
+            api_key=resolved_key,
+        )
+        if compare_llm.get("llm_used") and compare_llm.get("answer"):
+            return _with_korean_answer({
+                "answer": compare_llm["answer"],
+                "documents": [],
+                "keywords": [],
+                "metrics": [],
+                "relevant_chunks": [],
+                "intent": "compare",
+                "llm_used": True,
+                "provider": compare_llm.get("provider"),
+                "model": compare_llm.get("model"),
+                "llm_error": None,
+                "llm_key_received": True,
+                "llm_key_source": llm_key_source,
+                "suggested_questions": [],
+            })
+        compare_llm_error = "LLM 비교 분석에 실패해 로컬 비교 분석으로 전환했습니다."
+
+    if should_compare_documents and not is_visual_request:
         compare_payload = build_document_compare_answer(question, extracted_docs)
         if compare_payload:
             return _with_korean_answer({
                 **fallback_answer,
                 **compare_payload,
                 "llm_used": False,
-                "provider": None,
+                "provider": selected_provider,
                 "model": None,
-                "llm_error": None,
+                "llm_error": compare_llm_error,
                 "llm_key_received": llm_key_received,
                 "llm_key_source": llm_key_source,
                 "intent": "compare",

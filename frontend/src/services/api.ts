@@ -6,6 +6,8 @@ import axios from 'axios';
 
 interface AnalysisChatOptions {
   conversationId?: string;
+  documentIds?: string[];
+  useCurrentFilesOnly?: boolean;
   openaiApiKey?: string;
   googleApiKey?: string;
   llmProvider?: string;
@@ -155,6 +157,10 @@ export const analysisAPI = {
     const formData = new FormData();
     formData.append('question', question);
     if (options.conversationId) formData.append('conversation_id', options.conversationId);
+    (options.documentIds || []).forEach((documentId) => {
+      formData.append('document_ids', documentId);
+    });
+    formData.append('use_current_files_only', options.useCurrentFilesOnly ? 'true' : 'false');
     formData.append('llm_provider', options.llmProvider || 'auto');
     if (options.selectedSourceName) formData.append('selected_source_name', options.selectedSourceName);
     formData.append('compare_mode', options.compareMode ? 'true' : 'false');

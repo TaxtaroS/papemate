@@ -9,6 +9,7 @@ from app.services.analysis.document_compare import (
     compare_result_to_dict,
     extract_compare_result,
 )
+from app.services.analysis.experiment_detection import has_experiment_results
 from app.services.paper_compare.experiment_chart import build_experiment_metric_chart
 from app.services.paper_compare.result_aligner import build_experiment_comparison
 
@@ -18,44 +19,67 @@ def build_document_compare_answer(question: str, extracted_docs: list[dict]) -> 
     if len(compare_docs) < 2:
         return None
 
-    doc_a, doc_b = compare_docs[0], compare_docs[1]
-    info_a = compare_result_to_dict(extract_compare_result(doc_a))
-    info_b = compare_result_to_dict(extract_compare_result(doc_b))
-    name_a = _display_name(doc_a, "문서 A")
-    name_b = _display_name(doc_b, "문서 B")
+    document_items = [
+        {
+            "doc": doc,
+            "name": _display_name(doc, f"문서 {index}"),
+            "info": compare_result_to_dict(extract_compare_result(doc)),
+        }
+        for index, doc in enumerate(compare_docs, start=1)
+    ]
+    combined_text = "\n".join(
+        str(doc.get("text") or doc.get("content") or "")
+        for doc in compare_docs
+    )
+    include_experiment = has_experiment_results(combined_text)
 
     comparison_table = [
-        {"항목": FIELD_LABELS[key], "문서A": info_a[key], "문서B": info_b[key]}
+        {
+            "항목": FIELD_LABELS[key],
+            **{
+                item["name"]: item["info"][key]
+                for item in document_items
+            },
+        }
         for key in ("topic", "purpose", "data_source", "methodology", "findings", "limitations")
     ]
-    experiment_comparison = build_experiment_comparison(compare_docs)
+    experiment_comparison = build_experiment_comparison(compare_docs) if include_experiment else None
     experiment_chart = build_experiment_metric_chart(experiment_comparison) if experiment_comparison else None
-    experiment_lines = _experiment_section(experiment_comparison)
+    experiment_lines = _experiment_section(experiment_comparison, 4)
     time_series_comparison = _build_cpi_comparison(compare_docs)
     time_series_lines = _time_series_section(time_series_comparison)
+    final_summary_number = 5 if experiment_comparison else 4
 
     answer = "\n".join(
         [
-            f"요청하신 두 문서를 기준 항목별로 비교했습니다.",
-            *time_series_lines,
+            f"요청하신 {len(document_items)}개 문서를 기준 항목별로 비교했습니다.",
             "",
-            f"| 항목 | {name_a} | {name_b} |",
-            "|---|---|---|",
+            "## 1. 비교표",
+            *time_series_lines,
+            "| 항목 | " + " | ".join(item["name"] for item in document_items) + " |",
+            "|---|" + "|".join("---" for _ in document_items) + "|",
             *[
-                f"| {row['항목']} | {_escape_cell(row['문서A'])} | {_escape_cell(row['문서B'])} |"
+                "| "
+                + " | ".join(
+                    [_escape_cell(row["항목"])]
+                    + [_escape_cell(row.get(item["name"], "")) for item in document_items]
+                )
+                + " |"
                 for row in comparison_table
             ],
             "",
-            "공통점",
-            *[f"- {item}" for item in _common_points(info_a, info_b)],
+            "## 2. 공통점",
+            *[f"- {point}" for point in _common_points_many(document_items)],
             "",
-            "차이점",
-            *[f"- {item}" for item in _differences(info_a, info_b, name_a, name_b)],
-            "",
-            "활용 관점",
-            f"- {name_a}는 {info_a['topic']} 관점에서 확인할 때 적합합니다.",
-            f"- {name_b}는 {info_b['topic']} 관점에서 확인할 때 적합합니다.",
+            "## 3. 차이점",
+            *[f"- {point}" for point in _differences_many(document_items)],
             *experiment_lines,
+            "",
+            f"## {final_summary_number}. 최종 요약",
+            *[
+                f"- {item['name']}는 {item['info']['topic']} 관점의 문서로 정리됩니다."
+                for item in document_items
+            ],
         ]
     )
 
@@ -65,7 +89,14 @@ def build_document_compare_answer(question: str, extracted_docs: list[dict]) -> 
         "time_series_comparison_table": time_series_comparison,
         "experiment_comparison_table": experiment_comparison.get("rows", []) if experiment_comparison else [],
         "experiment_chart": experiment_chart,
-        "compare": {"document_a": info_a, "document_b": info_b},
+        "compare": {
+            "document_a": document_items[0]["info"],
+            "document_b": document_items[1]["info"],
+            "documents": [
+                {"filename": item["name"], **item["info"]}
+                for item in document_items
+            ],
+        },
         "suggested_questions": [
             "두 문서의 차이점을 더 자세히 설명해줘",
             "두 문서 중 발표에 더 적합한 문서를 골라줘",
@@ -104,11 +135,35 @@ def _differences(info_a: dict[str, str], info_b: dict[str, str], name_a: str, na
     ]
 
 
+def _common_points_many(document_items: list[dict]) -> list[str]:
+    points = []
+    if all(_has_value(item["info"]["methodology"]) for item in document_items):
+        points.append("모든 문서가 특정 분석 방법이나 연구 절차를 제시합니다.")
+    if all(_has_value(item["info"]["data_source"]) for item in document_items):
+        points.append("모든 문서에서 사용 데이터 또는 근거 자료를 확인할 수 있습니다.")
+    if all(_has_value(item["info"]["findings"]) for item in document_items):
+        points.append("모든 문서가 주요 결과 또는 결론을 제시합니다.")
+    while len(points) < 3:
+        points.append("모든 문서를 동일한 비교 항목으로 나란히 검토할 수 있습니다.")
+    return points[:3]
+
+
+def _differences_many(document_items: list[dict]) -> list[str]:
+    lines = []
+    for item in document_items:
+        info = item["info"]
+        lines.append(
+            f"{item['name']}: 주제는 '{info['topic']}', 연구 목적은 '{info['purpose']}', "
+            f"분석 방법은 '{info['methodology']}'로 정리됩니다."
+        )
+    return lines
+
+
 def _has_value(value: str) -> bool:
     return bool(value and "명확히 찾지 못했습니다" not in value)
 
 
-def _experiment_section(experiment_comparison: dict | None) -> list[str]:
+def _experiment_section(experiment_comparison: dict | None, section_number: int) -> list[str]:
     rows = (experiment_comparison or {}).get("rows") or []
     if not rows:
         return []
@@ -124,7 +179,7 @@ def _experiment_section(experiment_comparison: dict | None) -> list[str]:
 
     return [
         "",
-        "실험 결과 비교표",
+        f"## {section_number}. 실험 결과 비교",
         "| " + " | ".join(columns) + " |",
         "| " + " | ".join("---" for _ in columns) + " |",
         *[
@@ -183,7 +238,7 @@ def _time_series_section(rows: list[dict]) -> list[str]:
     columns = ["항목", "소비자물가지수", "전월대비", "전년동월대비"]
     return [
         "",
-        "월별 소비자물가 비교표",
+        "### 월별 소비자물가 비교표",
         "| " + " | ".join(columns) + " |",
         "| " + " | ".join("---" for _ in columns) + " |",
         *[
