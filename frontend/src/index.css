@@ -1,0 +1,23 @@
+/* 초보자 안내: 브라우저 화면에 적용되는 공통 CSS 스타일을 정의하는 파일입니다. */
+
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 전역 스타일 초기화 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html, body, #root, .App {
+  min-height: 100vh;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden; /* 가로 스크롤만 숨김 */
+  background-color: #f8fafc;
+}

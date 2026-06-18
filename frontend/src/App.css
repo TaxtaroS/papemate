@@ -1,0 +1,13 @@
+/* 초보자 안내: 브라우저 화면에 적용되는 공통 CSS 스타일을 정의하는 파일입니다. */
+
+html, body, #root, .App {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
