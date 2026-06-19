@@ -4,6 +4,21 @@
 import re
 
 
+def is_compare_request(question: str) -> bool:
+    """두 문서/논문 비교 요청인지 빠르게 판별합니다."""
+
+    keywords = [
+        "비교",
+        "차이",
+        "공통점",
+        "다른점",
+        "비교분석",
+        "compare",
+    ]
+    q = (question or "").lower()
+    return any(keyword.lower() in q for keyword in keywords)
+
+
 DOMAIN_TERMS = {
     "RAG",
     "LLM",
@@ -23,6 +38,9 @@ DOMAIN_TERMS = {
     "시각화",
 }
 
+# 사용자의 질문을 summary/analysis/compare/metrics 같은 처리 모드로 분류하기 위한 한국어 단서입니다.
+# 특히 compare는 paper_compare 성격의 질문("A와 B 차이", "공통점", "비교")을 잡아
+# 프롬프트와 근거 추출이 문서 간 차이 중심으로 움직이게 합니다.
 INTENT_CUE_TERMS = {
     "summary": {
         "핵심",
@@ -100,6 +118,8 @@ INTENT_TEXT_CUE_TERMS = {
     "extract": {"quote", "extract"},
 }
 
+# 질문에 등장한 한 단어만으로 관련 문장을 찾으면 누락이 많습니다.
+# 예를 들어 "비교"는 "차이", "공통점", "반면"까지 같이 찾도록 확장합니다.
 QUERY_EXPANSIONS = {
     "중요도": {"중요", "핵심", "우선순위", "비중", "영향", "강조", "의미", "필요성"},
     "중요": {"중요도", "핵심", "우선순위", "의미", "필요성"},
@@ -167,6 +187,8 @@ KOREAN_SUFFIXES = (
 
 
 def _strip_korean_suffix(word: str) -> str:
+    """간단한 조사/어미를 제거해 '비교는', '비교에서'를 같은 검색어로 맞춥니다."""
+
     for suffix in KOREAN_SUFFIXES:
         if word.endswith(suffix) and len(word) > len(suffix) + 1:
             return word[: -len(suffix)]
@@ -174,6 +196,8 @@ def _strip_korean_suffix(word: str) -> str:
 
 
 def _regex_terms(text: str) -> list[str]:
+    """외부 형태소 분석기가 없을 때 쓰는 기본 토큰화입니다."""
+
     terms = []
     for word in re.findall(r"[A-Za-z가-힣0-9]{2,}", text.lower()):
         normalized = _strip_korean_suffix(word)
@@ -185,6 +209,8 @@ def _regex_terms(text: str) -> list[str]:
 
 
 def _tokenize_terms(text: str) -> list[str]:
+    """ckonlpy가 있으면 도메인 단어를 보강한 형태소 분석을 쓰고, 없으면 regex로 fallback합니다."""
+
     try:
         from ckonlpy.tag import Twitter
     except ModuleNotFoundError:
@@ -200,6 +226,8 @@ def _tokenize_terms(text: str) -> list[str]:
 
 
 def _question_intent(question: str) -> str:
+    """질문 문장에 포함된 단서를 보고 가장 강한 요청 모드를 반환합니다."""
+
     lowered = (question or "").lower()
     for intent in ("extract", "compare", "metrics", "importance", "analysis", "summary"):
         cue_terms = INTENT_CUE_TERMS.get(intent, set()) | INTENT_TEXT_CUE_TERMS.get(intent, set())
@@ -228,6 +256,8 @@ def _intent_intro(question: str, intent: str) -> str:
 
 
 def _expanded_query_terms(question: str) -> set[str]:
+    """관련 문서 구간 검색에 쓸 확장 검색어 세트를 만듭니다."""
+
     terms = set(_tokenize_terms(question or ""))
     for term in list(terms):
         terms.update(QUERY_EXPANSIONS.get(term, set()))
@@ -241,6 +271,8 @@ def _compact_for_match(text: str) -> str:
 
 
 def _sentence_query_overlap(sentence: str, query_terms: set[str]) -> tuple[int, float]:
+    """문장 하나가 질문/비교 의도와 얼마나 겹치는지 점수화합니다."""
+
     if not query_terms:
         return 0, 0.0
     compact_sentence = _compact_for_match(sentence)
@@ -254,4 +286,6 @@ def _sentence_query_overlap(sentence: str, query_terms: set[str]) -> tuple[int, 
 
 
 def _question_wants_negative(question: str) -> bool:
+    """단점/한계/문제점처럼 부정 근거를 찾는 질문인지 판별합니다."""
+
     return bool(re.search(r"(아닌|제외|낮은|낮다|부족|한계|문제|어려운|불가능|단점)", question or ""))

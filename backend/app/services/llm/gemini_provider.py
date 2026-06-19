@@ -24,7 +24,14 @@ def extract_gemini_text(payload: dict) -> str:
     return "\n".join(str(part.get("text", "")) for part in parts if part.get("text")).strip()
 
 
-def call_gemini(api_key: str, model: str, system_prompt: str, user_prompt: str, image_parts: list[dict] | None = None) -> str:
+def call_gemini(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    image_parts: list[dict] | None = None,
+    response_schema: dict | None = None,
+) -> str:
     encoded_model = urllib.parse.quote(model, safe="")
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -41,6 +48,15 @@ def call_gemini(api_key: str, model: str, system_prompt: str, user_prompt: str, 
         }
     ]
     parts.extend(image_parts or [])
+    generation_config = {"temperature": 0.2}
+    if response_schema:
+        generation_config.update(
+            {
+                "responseMimeType": "application/json",
+                "responseJsonSchema": response_schema,
+            }
+        )
+
     payload = {
         "contents": [
             {
@@ -48,7 +64,7 @@ def call_gemini(api_key: str, model: str, system_prompt: str, user_prompt: str, 
                 "parts": parts,
             }
         ],
-        "generationConfig": {"temperature": 0.2},
+        "generationConfig": generation_config,
     }
     request = urllib.request.Request(
         url,

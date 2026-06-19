@@ -1,4 +1,8 @@
 # 서비스: 추출된 문서 텍스트를 chunk 단위로 랭킹하여 관련 구간을 선택합니다.
+# 초보자 안내:
+# - 긴 논문/보고서를 한 번에 LLM에 다 넣기 어렵기 때문에 작은 구간(chunk)으로 나눕니다.
+# - 질문과 가장 관련 있는 구간을 먼저 골라 LLM과 로컬 fallback 답변에 넘깁니다.
+# - paper_compare 성격의 질문에서는 여러 문서의 후보 chunk가 함께 경쟁하므로 비교 근거 품질에 직접 영향을 줍니다.
 """Hybrid local chunk ranking for extracted document text."""
 
 import math
@@ -21,11 +25,14 @@ from app.services.embeddings.reranker import semantic_sentence_scores
 
 
 # Chunk window size for ranking. This is independent from answer_builder.MAX_SENTENCE_CHARS.
+# 너무 작으면 문맥이 끊기고, 너무 크면 질문과 무관한 문장이 같이 섞입니다.
 CHUNK_SIZE = 900
 CHUNK_OVERLAP = 160
 
 
 def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """문서 본문을 문장 단위로 이어 붙여 검색 가능한 chunk 목록으로 나눕니다."""
+
     cleaned = _clean_text(text)
     if not cleaned:
         return []
@@ -59,6 +66,8 @@ def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
 
 
 def _idf_weights(chunks: list[str]) -> dict[str, float]:
+    """여러 chunk에 흔한 단어보다 특정 chunk에만 강한 단어를 더 높게 보기 위한 IDF 가중치입니다."""
+
     token_sets = [set(_tokenize_terms(chunk)) for chunk in chunks]
     total = len(token_sets)
     document_frequency = Counter(token for tokens in token_sets for token in tokens)
@@ -73,6 +82,8 @@ def _query_terms_for_rank(question: str) -> list[str]:
 
 
 def rank_relevant_chunks(question: str, extracted_docs: list[dict], limit: int = 6) -> list[dict]:
+    """질문과 가장 관련 있는 문서 구간을 뽑아 점수순으로 반환합니다."""
+
     candidates: list[dict] = []
     for doc in extracted_docs:
         source_units = doc.get("source_units") or [
@@ -109,7 +120,8 @@ def rank_relevant_chunks(question: str, extracted_docs: list[dict], limit: int =
     )
     rank_terms = _query_terms_for_rank(question)
     idf = _idf_weights([item["text"] for item in candidates])
-    # 1. Calculate base score for all candidates (without semantic score)
+    # 1. 모든 후보 chunk에 대해 빠른 로컬 점수를 계산합니다.
+    # 비교 질문에서는 "비교/차이/공통점" 확장어가 query_terms에 들어가 문서 간 대비 구간이 올라옵니다.
     base_ranked = []
     for index, item in enumerate(candidates):
         term_counts = Counter(_tokenize_terms(item["text"]))
@@ -147,10 +159,10 @@ def rank_relevant_chunks(question: str, extracted_docs: list[dict], limit: int =
 
         base_ranked.append({**item, "base_score": score, "original_index": index})
 
-    # 2. Sort by base score and take dynamic Top K for semantic reranking
+    # 2. 전체 chunk에 임베딩 점수를 매기면 느리므로, 로컬 점수 상위 후보만 semantic reranking합니다.
     base_ranked.sort(key=lambda item: item["base_score"], reverse=True)
     
-    # Dynamic threshold: 15% of total chunks, minimum 5, maximum 15.
+    # 문서가 길수록 후보를 조금 늘리되, 응답 속도를 위해 최대 15개까지만 봅니다.
     dynamic_top_k = min(15, max(5, int(len(base_ranked) * 0.15)))
     top_candidates = base_ranked[:dynamic_top_k]
     
@@ -162,13 +174,13 @@ def rank_relevant_chunks(question: str, extracted_docs: list[dict], limit: int =
     else:
         top_semantic_scores = None
 
-    # 3. Apply semantic scores to the top candidates
+    # 3. 질문 문장과 의미적으로 가까운 후보에 추가 점수를 줍니다.
     for i, item in enumerate(top_candidates):
         semantic_score = top_semantic_scores[i] if top_semantic_scores else 0.0
         item["semantic_score"] = round(semantic_score, 4)
         item["score"] = round(item["base_score"] + (semantic_score * QUERY_RELEVANCE_WEIGHTS.semantic), 4)
 
-    # 4. Final sort on the top candidates
+    # 4. 최종 점수순으로 정렬한 뒤 임시 계산 필드는 제거합니다.
     top_candidates.sort(key=lambda item: (item["score"], item.get("semantic_score", 0.0)), reverse=True)
     
     # Clean up temporary keys

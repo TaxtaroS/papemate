@@ -4,6 +4,11 @@
 This module owns non-LLM answers. Document extraction stays in
 document_processing.py, while this file builds quick summaries, keywords,
 metrics, and source-grounded fallback responses.
+
+초보자 안내:
+- API 키가 없거나 LLM 호출이 실패해도 사용자는 답변을 받아야 합니다.
+- 이 파일은 문서 본문만으로 핵심 요약, 키워드, 수치 후보, 관련 구간을 만들어 안전망 역할을 합니다.
+- chart 추천 질문과 paper_compare 답변의 기본 근거도 여기서 만든 payload를 바탕으로 구성됩니다.
 """
 
 from app.services.analysis.answer_builder import (
@@ -36,6 +41,8 @@ KEYWORD_TRANSLATIONS = {
 
 
 def _english_heavy(text: str) -> bool:
+    """영문 비중이 높아 한국어 사용자에게 그대로 보여주기 어려운 문장인지 확인합니다."""
+
     letters = [char for char in str(text or "") if char.isalpha()]
     if not letters:
         return False
@@ -45,6 +52,8 @@ def _english_heavy(text: str) -> bool:
 
 
 def _korean_user_text(text: str, *, source_label: str = "문서 근거") -> str:
+    """로컬 fallback 답변에 들어갈 문장을 가능한 한 한국어로 정리합니다."""
+
     cleaned = _clean_text(text)
     if not cleaned:
         return ""
@@ -68,6 +77,8 @@ def _keyword_text(keyword: object) -> str:
 
 
 def _focused_relevant_text(relevant_chunks: list[dict], fallback_text: str) -> str:
+    """질문과 가까운 chunk만 모아 요약/키워드/수치 추출의 입력으로 사용합니다."""
+
     if not relevant_chunks:
         return fallback_text
 
@@ -98,6 +109,8 @@ def _analysis_payload(
     documents: list[dict] | None = None,
     relevant_chunks: list[dict] | None = None,
 ) -> dict:
+    """라우터 응답과 LLM 보강 단계에서 공통으로 쓰는 로컬 분석 데이터 묶음입니다."""
+
     return {
         "summary": summary,
         "intent": intent,
@@ -120,6 +133,8 @@ def _fallback_response(question: str, payload: dict) -> dict:
 
 
 def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
+    """업로드 문서만으로 빠른 분석 결과를 만듭니다."""
+
     cleaned_docs = []
     for doc in extracted_docs:
         cleaned_text = _clean_text(doc.get("text", ""))
@@ -142,7 +157,8 @@ def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
     import concurrent.futures
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        # Phase 1: Rank chunks and extract combined document features
+        # 1단계: 전체 문서 기준의 후보를 동시에 뽑습니다.
+        # 비교 질문에서는 여러 문서의 chunk가 함께 들어오므로 문서별 근거 후보도 같이 잡힙니다.
         future_chunks = executor.submit(rank_relevant_chunks, question, cleaned_docs, 6)
         future_doc_terms = executor.submit(_frequent_terms, combined_text)
         future_doc_metrics = executor.submit(_metric_candidates, combined_text)
@@ -151,7 +167,7 @@ def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
         relevant_chunks = future_chunks.result()
         relevant_text = _focused_relevant_text(relevant_chunks, combined_text)
         
-        # Phase 2: Extract relevant text features
+        # 2단계: 질문과 관련 있는 텍스트만 좁혀 키워드/수치/주제를 다시 뽑습니다.
         if relevant_text == combined_text:
             future_rel_terms = future_doc_terms
             future_rel_metrics = future_doc_metrics
@@ -190,6 +206,8 @@ def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
 
 
 def build_concise_fallback_answer(question: str, fallback_answer: dict) -> str:
+    """프론트 채팅에 바로 보여줄 짧은 로컬 답변 문자열을 만듭니다."""
+
     intent = fallback_answer.get("intent") or _question_intent(question)
     relevant_chunks = fallback_answer.get("relevant_chunks") or []
     sections = [
@@ -233,6 +251,8 @@ def build_empty_context_answer(
     has_uploaded_files: bool,
     filenames: list[str],
 ) -> str:
+    """업로드 파일은 있으나 본문 추출이 안 됐거나, 애초에 문서가 없을 때의 안내문입니다."""
+
     if has_uploaded_files:
         file_names = ", ".join(filenames)
         return (

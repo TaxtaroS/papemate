@@ -3,5 +3,7 @@ services:
     environment:
       ENABLE_BERT_GROUNDING: "false"
       ENABLE_TOPIC_MODELING: "false"
+      ENABLE_LOCAL_TRANSLATION: "false"
+      LOCAL_TRANSLATION_AUTO_INSTALL: "false"
       TOPIC_MODEL_BACKEND: "keywords"
       TOKENIZERS_PARALLELISM: "false"

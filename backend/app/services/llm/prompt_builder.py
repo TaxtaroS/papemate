@@ -186,6 +186,8 @@ def build_prompts(
     context_limit: int = MAX_CONTEXT_CHARS,
     web_docs: list[dict] | None = None,
 ) -> tuple[str, str]:
+    """질문, 문서, 이전 대화, 웹 검색 결과를 합쳐 provider에 보낼 system/user prompt를 만듭니다."""
+
     intent = _question_intent(question)
     document_context = build_ranked_document_context(question, extracted_docs, relevant_chunks, context_limit)
     web_context = build_web_context(web_docs or [])
@@ -227,6 +229,8 @@ def build_prompts(
         "Do not include any other text after the separator except these 4 formatted chips.\n"
     )
 
+    # intent_prompt는 같은 문서라도 질문 목적에 따라 답변 구조를 바꾸는 장치입니다.
+    # paper_compare 성격의 질문은 compare 모드로 들어가 공통점/차이점/비교 대상 중심으로 답하게 합니다.
     intent_prompt = {
         "summary": (
             "[Detected Request Mode: SUMMARY]\n"
@@ -266,6 +270,8 @@ def build_prompts(
         "- Answer the user's question directly using the uploaded document context.\n"
     ))
 
+    # visual_mode_prompt는 차트/표/마인드맵 요청 전용 지시문입니다.
+    # 이 모드에서는 자연어 설명보다 프론트가 렌더링할 JSON의 안정성이 최우선입니다.
     visual_mode_prompt = (
         "-----------------------------------\n"
         "[Task: 📊 Data Visualization (Table/Chart/Mindmap)]\n"
@@ -276,6 +282,8 @@ def build_prompts(
         "- [Grounded Visual Data]: Every data value in the JSON must be directly extractable from the uploaded document context. If a month/year/source value is missing, use null rather than inventing a value.\n"
         "- 📊 [Data Extraction Rule]: For charts (bar, line, pie), you MUST extract multiple data points. DO NOT generate a chart with only a single data point on the X-axis.\n"
         "- 🚨 [STRICT JSON RULE]: When requested to visualize, you MUST return ONLY a single, raw JSON object. DO NOT include markdown code blocks, DO NOT add explanatory text outside the JSON, and DO NOT append 'SUGGESTED_QUESTIONS'.\n"
+        "- [Schema Rule]: The response is validated by JSON Schema. Always include every top-level key shown below. For non-chart visuals, use chartType='none', template='none', xAxisKey='', and empty arrays for columns/series/data when a field is not applicable.\n"
+        "- [Chart Data Key Rule]: For chart rows, use only these data keys: month, year, category, label, value, value2, value3, value4. Put null in unused row fields. Set xAxisKey to one of month/year/category/label and series.dataKey to value/value2/value3/value4.\n"
         "- [Renderer Responsibility Rule - CRITICAL]: Do NOT try to fully control final chart rendering details. The backend chart renderer will normalize data, validate keys, and build the final chart option.\n\n"
         "  [Strict JSON Format]\n"
         "  {\n"
@@ -287,13 +295,14 @@ def build_prompts(
         "    \"xAxisKey\": \"month\",\n"
         "    \"columns\": [{\"key\": \"month\", \"label\": \"월\"}, {\"key\": \"value\", \"label\": \"값\"}],\n"
         "    \"series\": [{\"dataKey\": \"value\", \"name\": \"값\", \"yAxisId\": \"left\"}],\n"
-        "    \"data\": [{\"month\": \"1월\", \"value\": 20000}]\n"
+        "    \"data\": [{\"month\": \"1월\", \"year\": null, \"category\": null, \"label\": null, \"value\": 20000, \"value2\": null, \"value3\": null, \"value4\": null}]\n"
         "  }\n"
         "- 'type' MUST be one of: chart, table, mindmap.\n"
         "- 'chartType' MUST be one of: bar, line, pie if type is chart.\n"
         "- 'series' is required for charts except pie.\n"
     )
 
+    # 시각화 요청이면 JSON 전용 프롬프트를 쓰고, 일반/비교/요약 질문이면 텍스트 답변 프롬프트를 씁니다.
     system_prompt = core_prompt + (visual_mode_prompt if is_visual_request(question) else text_mode_prompt + "\n" + intent_prompt)
     history_block = (
         "[Previous Conversation History - continuity only, not evidence]\n"

@@ -1,4 +1,8 @@
 # 서비스: 차트/그래프 시각화를 위한 데이터 정규화와 템플릿 구성을 담당합니다.
+# 초보자 안내:
+# - LLM이 만든 JSON을 프론트 차트 컴포넌트가 읽기 쉬운 형태로 다듬는 파일입니다.
+# - 숫자 문자열("1,200명", "35%")을 실제 숫자로 바꾸고, 월별 그래프는 1월~12월 축을 보정합니다.
+# - 최종 차트가 깨지지 않도록 chartType, xAxisKey, series, data의 최소 조건을 검사합니다.
 import json
 import re
 from typing import Any
@@ -8,6 +12,8 @@ from .common import base_asset, frequent_keywords
 
 ALLOWED_CHART_TYPES = {"line", "bar", "pie"}
 
+# LLM이나 문서 원문에서 빈 값이 여러 표현으로 들어오기 때문에
+# 차트 렌더러가 이해하는 None으로 통일합니다.
 NULL_VALUES = {
     "",
     "-",
@@ -23,6 +29,8 @@ NULL_VALUES = {
 
 MONTH_LABELS = [f"{index}월" for index in range(1, 13)]
 
+# 프론트에서 별도 색상을 지정하지 않아도 여러 시리즈가 구분되도록
+# 백엔드에서 기본 색상 팔레트를 붙입니다.
 DEFAULT_SERIES_COLORS = [
     "#2563eb",
     "#16a34a",
@@ -49,6 +57,8 @@ COMMON_OPTIONS = {
     },
 }
 
+# 차트 템플릿은 "데이터 성격"을 프론트 옵션으로 번역하는 층입니다.
+# 예: monthly_trend는 월별 12칸 축을 강제하고, regional_bar는 지역 비교용 정렬 옵션을 둡니다.
 CHART_TEMPLATES = {
     "monthly_trend": {
         **COMMON_OPTIONS,
@@ -86,6 +96,8 @@ CHART_TEMPLATES = {
 
 
 def normalize_value(value: Any) -> Any:
+    """문서/LLM에서 들어온 값 하나를 차트 계산에 쓸 수 있는 숫자 또는 None으로 정리합니다."""
+
     if value is None:
         return None
 
@@ -116,6 +128,8 @@ def normalize_value(value: Any) -> Any:
 
 
 def normalize_chart_data(data: list[dict]) -> list[dict]:
+    """차트 data 배열 전체를 순회하며 축 라벨은 문자열로, 수치 필드는 숫자로 맞춥니다."""
+
     normalized = []
 
     for row in data or []:
@@ -131,6 +145,8 @@ def normalize_chart_data(data: list[dict]) -> list[dict]:
 
 
 def normalize_monthly_axis(data: list[dict], x_key: str = "month") -> list[dict]:
+    """월별 그래프에서 누락된 월도 축에 남겨 프론트 레이아웃이 흔들리지 않게 합니다."""
+
     by_month = {}
 
     for row in data or []:
@@ -161,6 +177,8 @@ def normalize_monthly_axis(data: list[dict], x_key: str = "month") -> list[dict]
 
 
 def validate_chart_json(chart_json: dict[str, Any]) -> tuple[bool, list[str]]:
+    """프론트 렌더링 전에 차트 JSON의 필수 연결 관계를 검사합니다."""
+
     errors = []
 
     if not isinstance(chart_json, dict):
@@ -203,6 +221,8 @@ def validate_chart_json(chart_json: dict[str, Any]) -> tuple[bool, list[str]]:
 
 
 def ensure_chart_keys(chart_json: dict) -> dict:
+    """LLM이 xKey/key/label처럼 비슷한 이름으로 낸 필드를 표준 키로 보정합니다."""
+
     if "xAxisKey" not in chart_json and "xKey" in chart_json:
         chart_json["xAxisKey"] = chart_json["xKey"]
 
@@ -220,6 +240,8 @@ def ensure_chart_keys(chart_json: dict) -> dict:
 
 
 def guess_template(chart_json: dict) -> str:
+    """제목, x축 키, 데이터 라벨을 보고 가장 자연스러운 차트 템플릿을 추정합니다."""
+
     title = str(chart_json.get("title", ""))
     x_key = str(chart_json.get("xAxisKey", chart_json.get("xKey", "")))
     data = chart_json.get("data") or []
@@ -243,6 +265,8 @@ def guess_template(chart_json: dict) -> str:
 
 
 def apply_template(chart_json: dict) -> dict:
+    """선택/추정된 템플릿 옵션을 차트 JSON에 합쳐 프론트가 바로 사용할 수 있게 합니다."""
+
     template_name = chart_json.get("template") or guess_template(chart_json)
     template = CHART_TEMPLATES.get(template_name, CHART_TEMPLATES["default"])
 
@@ -256,6 +280,8 @@ def apply_template(chart_json: dict) -> dict:
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
+    """마크다운 코드블록이나 앞뒤 설명이 섞인 답변에서도 JSON 객체만 꺼냅니다."""
+
     if not text:
         raise ValueError("빈 응답입니다.")
 
@@ -278,6 +304,8 @@ def extract_json_object(text: str) -> dict[str, Any]:
 
 
 def apply_series_colors(chart_json: dict[str, Any]) -> dict[str, Any]:
+    """각 series에 기본 색상을 순서대로 부여합니다."""
+
     series = chart_json.get("series") or []
 
     for index, item in enumerate(series):
@@ -288,6 +316,8 @@ def apply_series_colors(chart_json: dict[str, Any]) -> dict[str, Any]:
 
 
 def postprocess_chart_json(chart_json: dict[str, Any]) -> dict[str, Any]:
+    """LLM 차트 응답을 표준화, 템플릿 적용, 검증까지 한 번에 처리하는 핵심 후처리 함수입니다."""
+
     chart_json = ensure_chart_keys(chart_json)
     chart_json = apply_template(chart_json)
     chart_json = apply_series_colors(chart_json)
@@ -309,12 +339,16 @@ def postprocess_chart_json(chart_json: dict[str, Any]) -> dict[str, Any]:
 
 
 def process_chart_response(answer: str) -> str:
+    """LLM 원문 답변 문자열을 프론트가 읽을 수 있는 차트 JSON 문자열로 변환합니다."""
+
     chart_json = extract_json_object(answer)
     chart_json = postprocess_chart_json(chart_json)
     return json.dumps(chart_json, ensure_ascii=False)
 
 
 def create_graph_visual(extracted_docs: list[dict], analysis_text: str) -> dict:
+    """LLM 차트 JSON이 없을 때 쓰는 로컬 기본 그래프 자료를 만듭니다."""
+
     asset = base_asset("graph", "키워드 중요도 그래프", analysis_text)
     keywords = frequent_keywords(analysis_text, 6)
     if not keywords:

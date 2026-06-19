@@ -1,4 +1,6 @@
 # 초보자 안내: 문서 파일 업로드와 분석 요청을 처리하는 API 라우터입니다.
+# 이 라우터는 "HTTP 요청을 받아서 파이프라인에 넘기는 입구" 역할만 합니다.
+# 실제 요약/비교/차트 생성 판단은 services 계층에서 처리합니다.
 
 import logging
 
@@ -13,6 +15,8 @@ from models.schemas import AnalysisResponse
 # /api/analysis 아래의 분석 API를 모아두는 FastAPI Router입니다.
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
+# 같은 채팅방에서 파일을 한 번 올린 뒤 추가 질문을 할 수 있게 문서 추출 결과를 메모리에 보관합니다.
+# 운영 환경에서 서버가 여러 대가 되면 Redis/Mongo 같은 외부 저장소로 옮길 후보입니다.
 DOCUMENT_SESSION_CACHE: dict[str, list[dict]] = {}
 logger = logging.getLogger(__name__)
 
@@ -26,6 +30,12 @@ def _is_truthy(value: str) -> bool:
 
 
 def _filter_selected_docs(docs: list[dict], selected_source_name: str, compare_mode: bool) -> list[dict]:
+    """단일 문서 질문과 논문/문서 비교 질문의 입력 범위를 분리합니다.
+
+    compare_mode=True면 여러 문서를 함께 봐야 하므로 전체 docs를 유지합니다.
+    compare_mode=False이고 selected_source_name이 있으면 사용자가 선택한 문서만 분석합니다.
+    """
+
     if compare_mode or not selected_source_name:
         return docs
 
@@ -44,6 +54,8 @@ def _filter_selected_docs(docs: list[dict], selected_source_name: str, compare_m
 
 
 def _merge_cached_docs(existing_docs: list[dict], new_docs: list[dict]) -> list[dict]:
+    """같은 세션에서 같은 파일명이 다시 올라오면 최신 추출 결과로 교체합니다."""
+
     merged = list(existing_docs or [])
     for doc in new_docs or []:
         filename = _normalize_name(doc.get("filename", ""))
@@ -77,6 +89,8 @@ async def analyze_chat(
     selected_source_name: str = Form(""),
     compare_mode: str = Form("false"),
 ):
+    # compare_mode는 프론트에서 "여러 논문/문서를 서로 비교"하는 화면 상태를 넘겨주는 값입니다.
+    # 이 값이 true면 selected_source_name이 있어도 특정 파일 하나로 좁히지 않습니다.
     analysis_text = analysis_text.strip()
     session_key = conversation_id.strip()
     should_compare = _is_truthy(compare_mode)

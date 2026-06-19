@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from app.core.config import settings
+from app.services.llm.structured_outputs import OPENAI_TABLE_RESPONSE_FORMAT
 from app.services.openai_client import OPENAI_STRUCTURED_TIMEOUT_SECONDS, make_openai_client
 
 from .common import base_asset, clean_line, meaningful_lines
@@ -486,7 +487,7 @@ def _gpt_table_from_analysis(
 - 중요내용 열에는 해당 항목에서 실제로 중요한 근거, 주장, 수치, 결론을 짧고 구체적으로 요약
 - 중요도는 0~100 점수, 정확도는 분석 결과에 근거한 신뢰도 0~100
 - 아래 내용에 없는 내용은 만들지 말 것
-- 반드시 JSON 객체만 출력
+- 반드시 지정된 JSON Schema에 맞는 JSON 객체만 출력
 
 JSON 형식:
 {{
@@ -512,7 +513,7 @@ JSON 형식:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
-            response_format={"type": "json_object"},
+            response_format=OPENAI_TABLE_RESPONSE_FORMAT,
         )
         content = response.choices[0].message.content or ""
     except Exception:
