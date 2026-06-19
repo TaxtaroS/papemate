@@ -66,6 +66,7 @@ const formatDateTime = (value) => {
   return `${date} ${time}`;
 };
 const getAssetTimestamp = (asset) => formatDateTime(asset?.savedAt || asset?.createdAt || asset?.updatedAt || asset?.date);
+const getMessageTimestamp = (message) => formatDateTime(message?.createdAt || message?.time || message?.date);
 const getFileKey = (file) => `${file.name}-${file.size}-${file.lastModified || 0}`;
 const mergeUniqueFiles = (...fileGroups) => {
   const seen = new Set();
@@ -332,19 +333,67 @@ const getLatestAnalysisText = (messages) => {
   return latest?.text || '';
 };
 
-const splitEvidenceSections = (text = '') => {
-  const sectionPattern = /(\[(?:수치 후보|관련 문서 구간|문서별 핵심 근거)\])/g;
-  const parts = String(text).split(sectionPattern);
+const BRACKET_EVIDENCE_SECTION_PATTERN = /(\[(?:수치 후보|관련 문서 구간|문서별 핵심 근거)\])/g;
+const COLLAPSIBLE_HEADING_PATTERN =
+  /^#{1,6}\s*(핵심\s*해석|상세\s*분석|근거|시사점|주의(?:할\s*)?점|문서\s*구조|문서별\s*핵심\s*근거|관련\s*문서\s*구간|수치\s*후보|공통점|차이점|활용\s*관점|비교표|결론|요약).*$/im;
+const MARKDOWN_HEADING_PATTERN = /^#{1,6}\s+(.+)$/gm;
+
+const normalizeSectionTitle = (title = '') =>
+  String(title || '')
+    .replace(/^#{1,6}\s*/, '')
+    .replace(/^\[|\]$/g, '')
+    .replace(/\*\*/g, '')
+    .trim();
+
+const findFirstCollapsibleHeadingIndex = (text = '') => {
+  const match = COLLAPSIBLE_HEADING_PATTERN.exec(String(text || ''));
+  return match ? match.index : -1;
+};
+
+const parseBracketEvidenceSections = (text = '') => {
+  const parts = String(text).split(BRACKET_EVIDENCE_SECTION_PATTERN);
   const main = (parts.shift() || '').trim();
   const evidence = [];
 
   for (let index = 0; index < parts.length; index += 2) {
-    const title = parts[index]?.replace(/^\[|\]$/g, '').trim();
+    const title = normalizeSectionTitle(parts[index]);
     const body = parts[index + 1]?.trim();
     if (title && body) evidence.push({ title, body });
   }
 
   return { main, evidence };
+};
+
+const parseCollapsibleHeadingSections = (text = '') => {
+  const value = String(text || '').trim();
+  if (!value) return [];
+
+  const matches = Array.from(value.matchAll(MARKDOWN_HEADING_PATTERN));
+  return matches
+    .map((match, index) => {
+      const title = normalizeSectionTitle(match[1]);
+      const bodyStart = (match.index || 0) + match[0].length;
+      const bodyEnd = matches[index + 1]?.index ?? value.length;
+      const body = value.slice(bodyStart, bodyEnd).trim();
+      return { title, body };
+    })
+    .filter((section) => section.title && section.body);
+};
+
+const splitEvidenceSections = (text = '') => {
+  const value = String(text || '');
+  const collapsibleIndex = findFirstCollapsibleHeadingIndex(value);
+  const introText = collapsibleIndex >= 0 ? value.slice(0, collapsibleIndex) : value;
+  const collapsibleText = collapsibleIndex >= 0 ? value.slice(collapsibleIndex) : '';
+  const introSections = parseBracketEvidenceSections(introText);
+
+  return {
+    main: introSections.main,
+    evidence: [
+      ...introSections.evidence,
+      ...parseCollapsibleHeadingSections(collapsibleText),
+    ],
+  };
 };
 
 const removeInlineFileCitations = (text = '') =>
@@ -420,7 +469,8 @@ const EvidenceMarkdown = ({ text }) => {
   );
 };
 
-const TYPEWRITER_CHAR_DELAY_MS = 50;
+const TYPEWRITER_CHAR_DELAY_MS = 15;
+const MAX_TYPEWRITER_CHARACTERS = 900;
 const TYPEWRITER_CURSOR = '▌';
 
 const splitRevealCharacters = (text = '') => {
@@ -444,8 +494,37 @@ const shouldRevealMessage = (message: any = {}) => {
   return Number.isFinite(createdAt) && Date.now() - createdAt < 9000;
 };
 
+const findReadableCutoff = (text = '', maxLength = MAX_TYPEWRITER_CHARACTERS) => {
+  const value = String(text || '');
+  if (value.length <= maxLength) return value.length;
+
+  const beforeLimit = value.slice(0, maxLength);
+  const paragraphBreak = beforeLimit.lastIndexOf('\n\n');
+  if (paragraphBreak > 280) return paragraphBreak;
+
+  const lineBreak = beforeLimit.lastIndexOf('\n');
+  if (lineBreak > 280) return lineBreak;
+
+  const sentenceBreak = Math.max(beforeLimit.lastIndexOf('. '), beforeLimit.lastIndexOf('다. '), beforeLimit.lastIndexOf('요. '));
+  return sentenceBreak > 280 ? sentenceBreak + 1 : maxLength;
+};
+
+const splitTypewriterText = (text = '') => {
+  const value = String(text || '');
+  const collapsibleIndex = findFirstCollapsibleHeadingIndex(value);
+  const cutoff = collapsibleIndex >= 0
+    ? collapsibleIndex
+    : findReadableCutoff(value);
+
+  return {
+    animatedText: value.slice(0, cutoff),
+    staticText: value.slice(cutoff),
+  };
+};
+
 const ProgressiveEvidenceMarkdown = ({ text, animate = false, onProgress }: { text: string; animate?: boolean; onProgress?: () => void }) => {
-  const characters = useMemo(() => splitRevealCharacters(text), [text]);
+  const { animatedText, staticText } = useMemo(() => splitTypewriterText(text), [text]);
+  const characters = useMemo(() => splitRevealCharacters(animate ? animatedText : text), [animate, animatedText, text]);
   const [visibleCount, setVisibleCount] = useState(() => (animate ? 1 : characters.length));
   const isComplete = visibleCount >= characters.length;
 
@@ -482,6 +561,7 @@ const ProgressiveEvidenceMarkdown = ({ text, animate = false, onProgress }: { te
   return (
     <div className={animate && !isComplete ? 'typewriter-reveal active' : 'typewriter-reveal'}>
       <EvidenceMarkdown text={visibleText} />
+      {animate && staticText && <EvidenceMarkdown text={staticText} />}
     </div>
   );
 };
@@ -1874,6 +1954,11 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
                           onProgress={scrollToLatestMessage}
                         />
                       </div>
+                      {getMessageTimestamp(message) && (
+                        <time className="message-time ai-time" dateTime={message.createdAt || ''}>
+                          {getMessageTimestamp(message)}
+                        </time>
+                      )}
                       {message.suggestedQuestions && message.suggestedQuestions.length > 0 && (
                         <div className="suggested-questions">
                           {message.suggestedQuestions.map((q, idx) => (
@@ -1890,7 +1975,16 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
                     </div>
                   </AiRow>
                 ) : message.role === 'user' ? (
-                  <UserRow><div className="user-box">{message.text}</div></UserRow>
+                  <UserRow>
+                    <div className="user-message-stack">
+                      <div className="user-box">{message.text}</div>
+                      {getMessageTimestamp(message) && (
+                        <time className="message-time user-time" dateTime={message.createdAt || ''}>
+                          {getMessageTimestamp(message)}
+                        </time>
+                      )}
+                    </div>
+                  </UserRow>
                 ) : message.role === 'asset' ? (
                   <AiRow>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '85%', minWidth: '450px' }}>

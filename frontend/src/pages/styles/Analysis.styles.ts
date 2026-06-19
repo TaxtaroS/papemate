@@ -462,6 +462,18 @@ export const AiRow = styled.div`
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     border: 1px solid #e2e8f0;
   }
+
+  .message-time {
+    color: #94a3b8;
+    font-size: 11.5px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .ai-time {
+    align-self: flex-start;
+    margin-left: 4px;
+  }
   
   .markdown-body {
     font-family: inherit;
@@ -719,6 +731,14 @@ export const AiRow = styled.div`
 export const UserRow = styled.div`
   display: flex; justify-content: flex-end;
 
+  .user-message-stack {
+    max-width: 75%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
   .user-box {
     background: #0ea5a4;
     color: white;
@@ -726,13 +746,24 @@ export const UserRow = styled.div`
     border-radius: 16px 4px 16px 16px;
     font-size: 14px;
     font-weight: 700;
-    max-width: 75%;
+    max-width: 100%;
     box-shadow: 0 4px 12px rgba(14, 165, 164, 0.15);
   }
 
+  .message-time {
+    color: #94a3b8;
+    font-size: 11.5px;
+    font-weight: 700;
+    line-height: 1;
+    margin-right: 4px;
+  }
+
   @media (max-width: 680px) {
-    .user-box {
+    .user-message-stack {
       max-width: 92%;
+    }
+
+    .user-box {
       padding: 12px 16px;
       font-size: 13.5px;
     }
