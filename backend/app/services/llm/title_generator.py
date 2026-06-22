@@ -8,7 +8,6 @@ def generate_chat_title(
     question: str,
     provider: str = "openai",
     openai_api_key: str | None = None,
-    google_api_key: str | None = None,
     analysis_text: str = "",
 ) -> str:
     """사용자의 첫 질문을 바탕으로 3~5단어의 짧은 제목을 생성합니다."""

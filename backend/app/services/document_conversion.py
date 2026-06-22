@@ -66,6 +66,14 @@ def _wrap_text(draw, text: str, font, max_width: int) -> list[str]:
     return lines
 
 
+def _draw_centered_lines(draw, lines: list[str], *, center_x: int, y: int, font, fill: str, line_height: int) -> int:
+    for line in lines:
+        line_width = _measure_text(draw, line, font)
+        draw.text((center_x - (line_width / 2), y), line, fill=fill, font=font)
+        y += line_height
+    return y
+
+
 def _preview_lines(draw, text: str, body_font, table_font, max_width: int) -> list[tuple[str, str]]:
     output: list[tuple[str, str]] = []
     for raw_line in text.splitlines():
@@ -97,18 +105,27 @@ def render_text_preview_pdf(filename: str, text: str, *, source_format: str = "d
         body_text += "\n\n[미리보기는 문서 앞부분만 표시합니다. LLM 분석은 추출된 전체 문서 텍스트를 기준으로 수행됩니다.]"
 
     width, height = 1240, 1754
-    margin_x, margin_y = 90, 88
-    body_top = 178
-    body_bottom = height - 90
+    margin_x, margin_y = 120, 86
+    content_width = min(980, width - (margin_x * 2))
+    content_left = (width - content_width) // 2
+    content_right = content_left + content_width
+    title_max_width = content_width - 80
+    body_bottom = height - 96
     line_gap = 12
-    title_font = _load_preview_font(36)
+    title_font = _load_preview_font(34)
     meta_font = _load_preview_font(22)
     body_font = _load_preview_font(26)
     table_font = _load_preview_font(22)
 
     scratch = Image.new("RGB", (width, height), "white")
     scratch_draw = ImageDraw.Draw(scratch)
-    lines = _preview_lines(scratch_draw, body_text, body_font, table_font, width - (margin_x * 2))
+    title_lines = _wrap_text(scratch_draw, safe_filename, title_font, title_max_width)[:3]
+    if not title_lines:
+        title_lines = ["document"]
+    title_line_height = max(42, int(_measure_text(scratch_draw, "가", title_font) * 1.65))
+    header_rule_y = margin_y + (len(title_lines) * title_line_height) + 18
+    body_top = header_rule_y + 38
+    lines = _preview_lines(scratch_draw, body_text, body_font, table_font, content_width)
     line_height = max(34, int(_measure_text(scratch_draw, "가", body_font) * 1.65))
 
     pages: list[Image.Image] = []
@@ -118,17 +135,26 @@ def render_text_preview_pdf(filename: str, text: str, *, source_format: str = "d
         page = Image.new("RGB", (width, height), "white")
         draw = ImageDraw.Draw(page)
 
-        draw.text((margin_x, margin_y), safe_filename, fill="#0f172a", font=title_font)
-        draw.line((margin_x, body_top - 24, width - margin_x, body_top - 24), fill="#cbd5e1", width=2)
+        _draw_centered_lines(
+            draw,
+            title_lines,
+            center_x=width // 2,
+            y=margin_y,
+            font=title_font,
+            fill="#0f172a",
+            line_height=title_line_height,
+        )
+        draw.line((content_left, header_rule_y, content_right, header_rule_y), fill="#cbd5e1", width=2)
+        draw.line((content_left + 220, header_rule_y + 7, content_right - 220, header_rule_y + 7), fill="#14b8a6", width=3)
 
         y = body_top
         while line_index < total_lines and y + line_height <= body_bottom:
             line, style = lines[line_index]
             if line:
                 if style == "table":
-                    draw.rectangle((margin_x - 8, y - 4, width - margin_x + 8, y + line_height + 3), fill="#f8fafc")
+                    draw.rectangle((content_left - 8, y - 4, content_right + 8, y + line_height + 3), fill="#f8fafc")
                 draw.text(
-                    (margin_x, y),
+                    (content_left, y),
                     line,
                     fill="#334155" if style == "table" else "#1e293b",
                     font=table_font if style == "table" else body_font,
@@ -140,9 +166,9 @@ def render_text_preview_pdf(filename: str, text: str, *, source_format: str = "d
 
     if line_index < total_lines and pages:
         draw = ImageDraw.Draw(pages[-1])
-        draw.rectangle((margin_x, body_bottom - 46, width - margin_x, body_bottom + 10), fill="white")
+        draw.rectangle((content_left, body_bottom - 46, content_right, body_bottom + 10), fill="white")
         draw.text(
-            (margin_x, body_bottom - 40),
+            (content_left, body_bottom - 40),
             "미리보기 페이지 제한으로 이후 내용은 생략되었습니다.",
             fill="#b45309",
             font=meta_font,

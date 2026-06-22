@@ -18,7 +18,6 @@ async def create_visual(
     analysis_text: str = Form(""),
     llm_provider: str = Form("auto"),
     openai_api_key: str = Form(""),
-    google_api_key: str = Form(""),
     files: list[UploadFile] = File(default=[]),
 ):
     """분석 페이지의 표/그래프/이미지/마인드맵 버튼이 호출하는 생성 API입니다."""

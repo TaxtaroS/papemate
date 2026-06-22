@@ -6,8 +6,6 @@ from app.services.analysis.query_analyzer import _intent_label, _question_intent
 
 
 MAX_CONTEXT_CHARS = 400000
-MAX_GEMINI_CONTEXT_CHARS = 24000
-MIN_GEMINI_CONTEXT_CHARS = 8000
 MAX_MULTIMODAL_IMAGES = 4
 
 
@@ -107,24 +105,6 @@ def multimodal_image_inputs(extracted_docs: list[dict], limit: int = MAX_MULTIMO
             if len(inputs) >= limit:
                 return inputs
     return inputs
-
-
-def multimodal_gemini_parts(extracted_docs: list[dict], limit: int = MAX_MULTIMODAL_IMAGES) -> list[dict]:
-    parts = []
-    for item in multimodal_image_inputs(extracted_docs, limit):
-        data_url = (item.get("image_url") or {}).get("url", "")
-        match = re.match(r"^data:(?P<mime>[-\w.+/]+);base64,(?P<data>.+)$", data_url)
-        if not match:
-            continue
-        parts.append(
-            {
-                "inline_data": {
-                    "mime_type": match.group("mime"),
-                    "data": match.group("data"),
-                }
-            }
-        )
-    return parts
 
 
 def chat_user_content(user_prompt: str, extracted_docs: list[dict]):

@@ -206,33 +206,64 @@ def build_analysis_answer(question: str, extracted_docs: list[dict]) -> dict:
 
 
 def build_concise_fallback_answer(question: str, fallback_answer: dict) -> str:
-    """프론트 채팅에 바로 보여줄 짧은 로컬 답변 문자열을 만듭니다."""
+    """프론트 채팅에 바로 보여줄 로컬 답변 문자열을 LLM 답변 순서에 맞춰 만듭니다."""
 
     intent = fallback_answer.get("intent") or _question_intent(question)
     relevant_chunks = fallback_answer.get("relevant_chunks") or []
+    summary = _clean_text(fallback_answer.get("summary", ""))
+    summary_text = _korean_user_text(summary[:1200], source_label="핵심 요약") if summary else "요약할 본문이 부족합니다."
     sections = [
+        "## 🎯 핵심 요약",
+        summary_text,
+        "",
+        "## 📚 주요 내용 상세 분석",
+        "",
+        "### 1. 질문 기준 핵심 해석",
         _intent_intro(question, intent),
-        "",
-        "현재 문서에서 확인되는 근거만 빠르게 정리했습니다.",
-        f"분석 기준: {_intent_label(intent)}",
-        "",
-        "[핵심 요약]",
+        f"- **분석 기준:** {_intent_label(intent)}",
+        "- **근거 범위:** 업로드 문서에서 확인되는 내용만 사용했습니다.",
     ]
 
-    summary = _clean_text(fallback_answer.get("summary", ""))
-    sections.append(_korean_user_text(summary[:900], source_label="핵심 요약") if summary else "요약할 본문이 부족합니다.")
+    topics = fallback_answer.get("topics") or []
+    keywords = fallback_answer.get("keywords") or []
+    topic_items = []
+    for topic in topics[:3]:
+        if isinstance(topic, dict):
+            label = topic.get("label") or topic.get("name") or topic.get("topic")
+            terms = topic.get("terms") or topic.get("keywords") or []
+            term_text = ", ".join(_keyword_text(term) for term in terms[:4] if _keyword_text(term))
+            if label or term_text:
+                topic_items.append((label or "문서 주제", term_text))
+
+    if topic_items or keywords:
+        sections.extend(["", "### 2. 주요 주제와 키워드"])
+        if topic_items:
+            for label, term_text in topic_items:
+                suffix = f": {term_text}" if term_text else ""
+                sections.append(f"- **{_korean_user_text(str(label), source_label='주제')}**{suffix}")
+        else:
+            keyword_items = [_keyword_text(keyword) for keyword in keywords[:8]]
+            keyword_items = [keyword for keyword in keyword_items if keyword]
+            sections.append(f"- **핵심 키워드:** {', '.join(keyword_items)}")
+
+    if relevant_chunks:
+        sections.extend(["", "### 3. 문서 근거"])
+        for chunk in relevant_chunks[:3]:
+            source_label = chunk.get("source_label") or f"Chunk {chunk.get('chunk_index', '?')}"
+            focused = _top_sentences(chunk.get("text", ""), 1, question)
+            preview = (focused[0] if focused else _clean_text(chunk.get("text", "")))[:360]
+            evidence_text = _korean_user_text(preview, source_label="근거 구간")
+            sections.append(f"- **{chunk.get('filename', '문서')} {source_label}:** {evidence_text}")
 
     metrics = fallback_answer.get("metrics") or []
     if metrics:
         sections.extend(["", "[수치 후보]"])
         sections.extend(f"- {_korean_user_text(metric, source_label='수치 근거')}" for metric in metrics[:8])
 
-    keywords = fallback_answer.get("keywords") or []
-    if keywords:
+    if keywords and topic_items:
         keyword_items = [_keyword_text(keyword) for keyword in keywords[:10]]
         keyword_items = [keyword for keyword in keyword_items if keyword]
-        keyword_label = "[핵심 키워드]"
-        sections.extend(["", keyword_label, ", ".join(keyword_items)])
+        sections.extend(["", "[핵심 키워드]", ", ".join(keyword_items)])
 
     if relevant_chunks:
         sections.extend(["", "[근거 구간]"])

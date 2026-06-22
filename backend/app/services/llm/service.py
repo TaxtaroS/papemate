@@ -50,13 +50,10 @@ def analyze_with_llm(
     extracted_docs: list[dict],
     provider: str = "openai",
     openai_api_key: str | None = None,
-    google_api_key: str | None = None,
     analysis_text: str = "",
     relevant_chunks: list[dict] | None = None,
     web_docs: list[dict] | None = None,
 ) -> dict:
-    # Deployment provider policy: accept legacy provider inputs from the UI/API,
-    # but route all LLM analysis through OpenAI for a single production path.
     provider_name = "openai"
     model_name = settings.openai_model
 

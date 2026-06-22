@@ -104,7 +104,6 @@ class Settings:
     openai_model: str
     anthropic_api_key: str
     anthropic_vision_model: str
-    google_api_key: str
     google_client_id: str
     kakao_rest_api_key: str
     kakao_client_secret: str
@@ -114,8 +113,6 @@ class Settings:
     naver_client_secret: str
     naver_redirect_uri: str
     naver_frontend_redirect_uri: str
-    gemini_api_key: str
-    gemini_model: str
     local_vlm_enabled: bool
     enable_bert_grounding: bool
     bert_grounding_model: str
@@ -178,7 +175,6 @@ def create_settings() -> Settings:
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip(),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
         anthropic_vision_model=os.getenv("ANTHROPIC_VISION_MODEL", "claude-3-5-sonnet-20241022").strip(),
-        google_api_key=os.getenv("GOOGLE_API_KEY", "").strip(),
         google_client_id=(os.getenv("GOOGLE_CLIENT_ID") or os.getenv("VITE_GOOGLE_CLIENT_ID", "")).strip(),
         kakao_rest_api_key=(
             os.getenv("KAKAO_REST_API_KEY")
@@ -201,8 +197,6 @@ def create_settings() -> Settings:
             or os.getenv("FRONTEND_URL")
             or "http://localhost:3000"
         ).strip().rstrip("/"),
-        gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
-        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
         local_vlm_enabled=_env_bool("LOCAL_VLM_ENABLED", False),
         enable_bert_grounding=_env_bool("ENABLE_BERT_GROUNDING", False),
         bert_grounding_model=os.getenv(

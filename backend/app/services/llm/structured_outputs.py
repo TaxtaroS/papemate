@@ -2,8 +2,7 @@
 
 초보자 안내:
 - 일반 채팅 답변은 자연어라 자유롭게 두지만, 차트/표 응답은 프론트가 JSON으로 파싱해야 합니다.
-- 그래서 LLM에게 "JSON으로 답해줘"라고 말만 하지 않고, API의 Structured Outputs 기능으로 모양을 고정합니다.
-- 이 파일은 OpenAI/Gemini에 넘길 스키마를 한곳에 모아 두어 provider별 호출부가 같은 규격을 쓰게 합니다.
+- 그래서 LLM에게 "JSON으로 답해줘"라고 말만 하지 않고, OpenAI Structured Outputs 기능으로 모양을 고정합니다.
 """
 
 
@@ -112,11 +111,6 @@ OPENAI_VISUAL_RESPONSE_FORMAT = {
         },
     },
 }
-
-
-# Gemini REST API는 OpenAI의 response_format 래퍼 없이 schema 본문만 받기 때문에
-# 같은 스키마 본문을 재사용합니다.
-GEMINI_VISUAL_RESPONSE_SCHEMA = OPENAI_VISUAL_RESPONSE_FORMAT["json_schema"]["schema"]
 
 
 # 분석 결과를 표로 바꾸는 보조 LLM 호출용 스키마입니다.

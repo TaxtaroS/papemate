@@ -26,10 +26,44 @@ TABLE_HINT_PATTERN = re.compile(r"^\s*\[?\s*(?:표|table)\s*\d+\s*\]?|[│┃┌
 HWPX_PARAGRAPH_TAGS = {"p", "para"}
 HWPX_TABLE_TAGS = {"tbl", "table", "tr", "tc", "row", "cell"}
 HWPX_IMAGE_TAGS = {"pic", "image", "img", "ole", "container", "shapeobject", "shape", "picture"}
+HANGUL_FRAGMENT_PATTERN = re.compile(r"(?<![가-힣])(?:[가-힣]\s+){1,7}[가-힣](?![가-힣])")
+LATIN_FRAGMENT_PATTERN = re.compile(r"(?<![A-Za-z])(?:[A-Za-z]\s+){2,15}[A-Za-z](?![A-Za-z])")
+BROKEN_KOREAN_TERMS = {
+    "게 임": "게임",
+    "디 자인": "디자인",
+    "플 레이": "플레이",
+    "게 이머": "게이머",
+    "유 형": "유형",
+    "연 구": "연구",
+    "방 법": "방법",
+    "논 문": "논문",
+    "분 석": "분석",
+    "결 과": "결과",
+    "텍 스트": "텍스트",
+    "문 서": "문서",
+}
 
 
 def _local_name(tag: str) -> str:
     return str(tag or "").rsplit("}", 1)[-1].split(":")[-1].lower()
+
+
+def _join_short_letter_fragments(text: str) -> str:
+    """Repair extraction artifacts like '디 자인' and 'g a m e' without heavy spacing NLP."""
+
+    for broken, repaired in BROKEN_KOREAN_TERMS.items():
+        text = text.replace(broken, repaired)
+
+    def join_hangul(match: re.Match) -> str:
+        compact = re.sub(r"\s+", "", match.group(0))
+        return compact if 2 <= len(compact) <= 8 else match.group(0)
+
+    def join_latin(match: re.Match) -> str:
+        compact = re.sub(r"\s+", "", match.group(0))
+        return compact if 3 <= len(compact) <= 16 else match.group(0)
+
+    text = HANGUL_FRAGMENT_PATTERN.sub(join_hangul, text)
+    return LATIN_FRAGMENT_PATTERN.sub(join_latin, text)
 
 
 def _clean_preview_line(text: str) -> str:
@@ -38,8 +72,11 @@ def _clean_preview_line(text: str) -> str:
     text = TEXT_NOISE_PATTERN.sub(" ", text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]+", " ", text)
     text = re.sub(r"\^\s*\(?\d+\)?", " ", text)
+    text = re.sub(r"([0-9])\1{3,}", r"\1\1", text)
+    text = re.sub(r"([A-Za-z가-힣])\1{3,}", r"\1\1", text)
     text = re.sub(r"[·•◦]{2,}", " ", text)
     text = re.sub(r"[ \t]+", " ", text)
+    text = _join_short_letter_fragments(text)
     return text.strip()
 
 

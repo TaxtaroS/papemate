@@ -1,4 +1,4 @@
-"""LLM-first comparison analysis with provider-specific calls."""
+"""LLM-first comparison analysis through the OpenAI production path."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from app.services.analysis.document_compare import (
     compare_result_to_dict,
     extract_compare_result,
 )
-from app.services.llm.gemini_provider import call_gemini
 from app.services.openai_client import OPENAI_ANALYSIS_TIMEOUT_SECONDS, make_openai_client
 
 
@@ -186,16 +185,12 @@ def _local_single_paper_summary(document: dict) -> str:
 
 def _call_model(
     *,
-    selected_provider: str,
     api_key: str,
     model: str,
     system_prompt: str,
     user_prompt: str,
     openai_client=None,
 ) -> str:
-    if selected_provider == "gemini":
-        return call_gemini(api_key, model, system_prompt, user_prompt).strip()
-
     client = openai_client or make_openai_client(api_key, OPENAI_ANALYSIS_TIMEOUT_SECONDS)
     response = client.chat.completions.create(
         model=model,
@@ -220,7 +215,6 @@ def summarize_single_paper(
     filename = str(document.get("filename") or f"문서 {index}")
     try:
         summary = _call_model(
-            selected_provider=selected_provider,
             api_key=api_key,
             model=model,
             system_prompt=(
@@ -250,7 +244,7 @@ def build_llm_compare_analysis(
     provider: str,
     api_key: str,
 ) -> dict:
-    selected_provider = "gemini" if provider in {"gemini", "google"} else "openai"
+    selected_provider = "openai"
     if len(documents) < 2:
         return {
             "answer": "📄 논문 비교를 위해서는 2개 이상의 문서를 업로드하여 주세요.",
@@ -259,13 +253,9 @@ def build_llm_compare_analysis(
             "model": None,
         }
 
-    model = settings.gemini_model if selected_provider == "gemini" else settings.openai_model
+    model = settings.openai_model
     try:
-        openai_client = (
-            None
-            if selected_provider == "gemini"
-            else make_openai_client(api_key, OPENAI_ANALYSIS_TIMEOUT_SECONDS)
-        )
+        openai_client = make_openai_client(api_key, OPENAI_ANALYSIS_TIMEOUT_SECONDS)
     except Exception:
         logger.exception("Compare analysis client initialization failed.")
         return {
@@ -304,7 +294,6 @@ def build_llm_compare_analysis(
 
     try:
         answer = _call_model(
-            selected_provider=selected_provider,
             api_key=api_key,
             model=model,
             system_prompt=(

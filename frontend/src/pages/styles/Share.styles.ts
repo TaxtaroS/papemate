@@ -373,6 +373,7 @@ export const ProjectLoadBar = styled.div`
   z-index: 7;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
@@ -380,6 +381,8 @@ export const ProjectLoadBar = styled.div`
   padding: 7px 10px;
   margin-bottom: 14px;
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   box-shadow: 0 12px 22px rgba(15, 23, 42, 0.07);
 
   input[type='file'] {
@@ -447,17 +450,16 @@ export const ProjectLoadBar = styled.div`
     display: flex;
     align-items: center;
     gap: 8px;
-    flex: 0 0 auto;
+    flex: 1 1 360px;
     min-width: 0;
-    margin-left: auto;
   }
 
   .support-code-input {
     height: 32px;
-    flex: 0 0 190px;
-    width: 190px;
-    min-width: 190px;
-    max-width: 190px;
+    flex: 1 1 180px;
+    width: 100%;
+    min-width: 150px;
+    max-width: 220px;
     border: 1px solid #bfdbfe;
     border-radius: 6px;
     padding: 0 12px;
@@ -482,7 +484,8 @@ export const ProjectLoadBar = styled.div`
   }
 
   .hint {
-    max-width: 180px;
+    flex: 1 1 100%;
+    min-width: 0;
     color: #64748b;
     font-size: 11px;
     font-weight: 700;
@@ -505,13 +508,14 @@ export const ProjectLoadBar = styled.div`
       align-items: center;
       margin-left: 0;
       min-width: 0;
+      flex: none;
     }
 
     .support-code-input {
-      flex: 0 0 168px;
-      width: 168px;
-      min-width: 168px;
-      max-width: 168px;
+      flex: 1 1 168px;
+      width: 100%;
+      min-width: 0;
+      max-width: none;
       height: 34px;
     }
 

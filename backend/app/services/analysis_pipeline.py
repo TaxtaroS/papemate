@@ -289,7 +289,6 @@ def _llm_first_payload(
 def _resolve_llm_provider_and_keys(
     provider: str,
     openai_api_key: str | None,
-    google_api_key: str | None,
 ) -> tuple[str, str, str, bool]:
     """요청값과 환경변수를 합쳐 실제 사용할 OpenAI provider/key를 결정합니다."""
 
@@ -307,7 +306,6 @@ def run_analysis_pipeline(
     uploaded_filenames: list[str] | None = None,
     llm_provider: str = "openai",
     openai_api_key: str | None = None,
-    google_api_key: str | None = None,
     analysis_text: str = "",
 ) -> dict:
     """분석 서비스의 단일 진입점입니다.
@@ -333,7 +331,6 @@ def run_analysis_pipeline(
     selected_provider, resolved_key, llm_key_source, llm_key_received = _resolve_llm_provider_and_keys(
         llm_provider,
         openai_api_key,
-        google_api_key,
     )
 
     # 문서 텍스트가 없으면 LLM을 호출해도 근거 기반 답변을 만들 수 없으므로 즉시 안내합니다.
@@ -417,7 +414,6 @@ def run_analysis_pipeline(
         extracted_docs,
         provider=selected_provider,
         openai_api_key=resolved_key,
-        google_api_key=None,
         analysis_text=analysis_text,
         relevant_chunks=fallback_answer.get("relevant_chunks", []),
         web_docs=web_docs,

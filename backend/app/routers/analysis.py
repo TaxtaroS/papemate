@@ -95,7 +95,6 @@ async def analyze_chat(
     use_current_files_only: str = Form("false"),
     llm_provider: str = Form("auto"),
     openai_api_key: str = Form(""),
-    google_api_key: str = Form(""),
     files: list[UploadFile] = File(default=[]),
     analysis_text: str = Form(""),
     selected_source_name: str = Form(""),
@@ -173,7 +172,6 @@ async def analyze_chat(
         uploaded_filenames=[upload.filename or "파일" for upload in files],
         llm_provider=llm_provider,
         openai_api_key=openai_api_key.strip() or None,
-        google_api_key=google_api_key.strip() or None,
         analysis_text=analysis_text,
     )
 
@@ -182,7 +180,6 @@ async def generate_title(
     question: str = Form(""),
     llm_provider: str = Form("auto"),
     openai_api_key: str = Form(""),
-    google_api_key: str = Form(""),
     analysis_text: str = Form("")
 ):
     selected_provider = (llm_provider or "auto").strip().lower()
@@ -195,7 +192,6 @@ async def generate_title(
         question,
         provider=selected_provider,
         openai_api_key=openai_api_key.strip() or None,
-        google_api_key=google_api_key.strip() or None,
         analysis_text=analysis_text.strip()
     )
     

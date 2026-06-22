@@ -17,20 +17,31 @@ def _clean_title(text: str) -> str:
 
 
 def _logical_lines(text: str) -> list[str]:
-    raw_lines = str(text or "").splitlines()
-    if len(raw_lines) <= 2:
-        heading_pattern = (
-            r"초록|초론|요약|abstract|서론|introduction|본론|연구방법|연구 방법|"
-            r"방법|method|methods|결과|results|논의|discussion|결론|conclusion"
-        )
-        text = re.sub(
-            rf"\s+({heading_pattern})\s+",
-            r"\n\1\n",
-            str(text or ""),
-            flags=re.IGNORECASE,
-        )
-        raw_lines = text.splitlines()
-    return [_clean_title(line) for line in raw_lines]
+    text = str(text or "")
+    heading_pattern = (
+        r"초록|초론|요약|abstract|서론|introduction|본론|연구방법|연구 방법|"
+        r"방법|method|methods|결과|results|논의|discussion|결론|conclusion|참고문헌|references"
+    )
+    text = re.sub(r"(?m)^\s*(#{1,4})\s*", "", text)
+    text = re.sub(r"(?m)^\s*(\[[^\]]+\])\s*$", r"\n\1\n", text)
+    text = re.sub(
+        rf"(?<![가-힣A-Za-z])({heading_pattern})(?![가-힣A-Za-z])",
+        r"\n\1\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?<!\d)(\d+(?:\.\d+)*[.)]\s+[^\n]{2,80})(?=\s+[가-힣A-Za-z0-9])", r"\n\1\n", text)
+
+    raw_lines: list[str] = []
+    for line in text.splitlines():
+        cleaned = _clean_title(line)
+        if not cleaned:
+            continue
+        if len(cleaned) > 360:
+            raw_lines.extend(_split_sentences(cleaned))
+        else:
+            raw_lines.append(cleaned)
+    return raw_lines
 
 
 def _filename_title(filename: str) -> str:
@@ -240,6 +251,46 @@ def _summarize_section(text: str, max_chars: int = 190) -> str:
     return summary
 
 
+def _content_seed_title(text: str, fallback: str) -> str:
+    """본문에서 로컬 표 제목으로 쓸 짧은 대표 표현을 뽑습니다."""
+
+    cleaned = clean_line(text)
+    if not cleaned:
+        return fallback
+    colon_match = re.match(r"^(.{2,28}?)(?:[:：]| - | – )", cleaned)
+    if colon_match:
+        return _clean_title(colon_match.group(1))
+
+    tokens = re.findall(r"[A-Za-z가-힣0-9]+", cleaned)
+    stop_tokens = {"그리고", "또한", "따라서", "하지만", "그러나", "대한", "관한"}
+    compact_tokens = []
+    for token in tokens:
+        token = re.sub(r"(은|는|이|가|을|를|과|와|에서|으로|로)$", "", token)
+        if len(token) < 2 or token in stop_tokens:
+            continue
+        compact_tokens.append(token)
+        if len(compact_tokens) >= 3:
+            break
+    if compact_tokens:
+        candidate = " ".join(compact_tokens)
+        if 4 <= len(candidate) <= 28 and not _is_noise_line(candidate):
+            return candidate
+    return fallback
+
+
+def _readable_content(text: str, max_chars: int = 260) -> str:
+    value = clean_line(text)
+    value = re.sub(r"^#{1,6}\s*", "", value)
+    value = re.sub(r"^\*{0,2}[^:*]{1,28}\*{0,2}\s*[:：]\s*$", "", value).strip()
+    value = re.sub(r"\|?\s*-{3,}\s*\|?", " ", value)
+    value = re.sub(r"\s*\|\s*", " / ", value)
+    value = re.sub(r"\*\*([^*]+)\*\*", r"\1", value)
+    value = re.sub(r"\s+", " ", value).strip(" -·")
+    if len(value) > max_chars:
+        return value[: max_chars - 1].rstrip() + "…"
+    return value
+
+
 def _document_body_start(lines: list[str]) -> int:
     for index, line in enumerate(lines):
         heading = _heading_info(line)
@@ -296,6 +347,21 @@ def _chunk_without_headings(lines: list[str], limit: int = 6) -> list[dict]:
 
 def _extract_structured_sections(extracted_docs: list[dict], limit: int = 8) -> list[dict]:
     sections: list[dict] = []
+    used_headings: dict[str, int] = {}
+
+    def push_section(title: str, content: str) -> None:
+        if not content:
+            return
+        heading = _clean_title(title) or _infer_section_title(content, len(sections))
+        if heading in {"본론", "내용", "문서 내용", "주요 내용"}:
+            inferred = _infer_section_title(content, len(sections))
+            seed = _content_seed_title(content, inferred)
+            heading = f"{heading}: {seed}" if seed and seed != heading else inferred
+        count = used_headings.get(heading, 0)
+        used_headings[heading] = count + 1
+        if count:
+            heading = f"{heading} {count + 1}"
+        sections.append({"title": heading, "content": _readable_content(content)})
 
     for doc in extracted_docs or []:
         lines = _logical_lines(doc.get("text") or "")
@@ -318,8 +384,7 @@ def _extract_structured_sections(extracted_docs: list[dict], limit: int = 8) -> 
             if current_sub:
                 heading = f"{current_major} > {current_sub}" if current_major else current_sub
             summary = _summarize_section(" ".join(buffer))
-            if summary:
-                sections.append({"title": heading or "문서 내용", "content": summary})
+            push_section(heading or "문서 내용", summary)
             buffer = []
 
         body_start = _document_body_start(lines)
@@ -338,11 +403,78 @@ def _extract_structured_sections(extracted_docs: list[dict], limit: int = 8) -> 
 
         flush()
         if len(sections) <= 1:
-            sections = _chunk_without_headings(lines, limit)
+            chunked = _chunk_without_headings(lines, limit)
+            if chunked:
+                sections = []
+                used_headings = {}
+                for section in chunked:
+                    push_section(section["title"], section["content"])
         if len(sections) >= limit:
             break
 
     return sections[:limit]
+
+
+def _extract_markdown_answer_sections(analysis_text: str, limit: int = 8) -> list[dict]:
+    """로컬 분석 답변의 markdown 섹션을 표 행으로 바꿉니다."""
+
+    text = str(analysis_text or "")
+    if not text.strip():
+        return []
+
+    sections: list[dict] = []
+    current_title = ""
+    buffer: list[str] = []
+
+    def flush() -> None:
+        nonlocal buffer, current_title
+        content_lines = []
+        for line in buffer:
+            cleaned = clean_line(re.sub(r"^\s*[-*]\s*", "", line))
+            if cleaned and not _is_noise_line(cleaned):
+                content_lines.append(cleaned)
+        content = _readable_content(" ".join(content_lines))
+        if current_title and content:
+            title = re.sub(r"^\d+\s*[.)]\s*", "", current_title).strip()
+            sections.append({"title": _clean_title(title), "content": content})
+        buffer = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        heading_match = re.match(r"^#{2,4}\s*(.+)$", line)
+        if heading_match:
+            flush()
+            current_title = re.sub(r"^[^\w가-힣]+", "", heading_match.group(1)).strip()
+            continue
+        bracket_match = re.match(r"^\[([^\]]{2,32})\]\s*$", line)
+        if bracket_match:
+            flush()
+            current_title = bracket_match.group(1)
+            continue
+        buffer.append(line)
+
+    flush()
+    return [section for section in sections if section["title"] and section["content"]][:limit]
+
+
+def _merge_local_sections(primary: list[dict], secondary: list[dict], limit: int = 8) -> list[dict]:
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for section in [*primary, *secondary]:
+        title = _clean_title(section.get("title") or "")
+        content = _readable_content(section.get("content") or "")
+        if not title or not content:
+            continue
+        key = re.sub(r"\W+", "", f"{title}{content[:35]}").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append({"title": title[:60], "content": content})
+        if len(merged) >= limit:
+            break
+    return merged
 
 
 def _source_lines(extracted_docs: list[dict], analysis_text: str, limit: int = 6) -> list[str]:
@@ -551,12 +683,14 @@ def create_table_visual(
     data = gpt_table["data"] if gpt_table else []
     if not data:
         structured_sections = _extract_structured_sections(extracted_docs, 8)
+        answer_sections = _extract_markdown_answer_sections(analysis_text, 8)
+        structured_sections = _merge_local_sections(structured_sections, answer_sections, 8)
         if structured_sections:
             for index, section in enumerate(structured_sections):
-                content = section["content"]
+                content = _readable_content(section["content"])
                 data.append(
                     {
-                        "toc": section["title"],
+                        "toc": _clean_title(section["title"])[:60],
                         "content": content,
                         "importance": _importance_score(content, index),
                         "accuracy": _accuracy_percent(content, extracted_docs, index),
@@ -566,12 +700,13 @@ def create_table_visual(
             analysis_lines = _source_lines(extracted_docs, analysis_text, 8) if analysis_text.strip() else []
             if analysis_lines:
                 for index, line in enumerate(analysis_lines[:8]):
+                    content = _readable_content(line)
                     data.append(
                         {
-                            "toc": _section_title(line, index),
-                            "content": clean_line(line),
-                            "importance": _importance_score(line, index),
-                            "accuracy": _accuracy_percent(line, extracted_docs, index),
+                            "toc": _section_title(content, index)[:60],
+                            "content": content,
+                            "importance": _importance_score(content, index),
+                            "accuracy": _accuracy_percent(content, extracted_docs, index),
                         }
                     )
             else:
@@ -579,12 +714,13 @@ def create_table_visual(
                 if not lines:
                     lines = ["업로드 문서 또는 분석 답변이 없어 기본 목차 후보를 생성했습니다."]
                 for index, line in enumerate(lines[:6]):
+                    content = _readable_content(line)
                     data.append(
                         {
-                            "toc": _section_title(line, index),
-                            "content": clean_line(line),
-                            "importance": _importance_score(line, index),
-                            "accuracy": _accuracy_percent(line, extracted_docs, index),
+                            "toc": _section_title(content, index)[:60],
+                            "content": content,
+                            "importance": _importance_score(content, index),
+                            "accuracy": _accuracy_percent(content, extracted_docs, index),
                         }
                     )
 

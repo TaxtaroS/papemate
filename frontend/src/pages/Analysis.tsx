@@ -469,7 +469,7 @@ const EvidenceMarkdown = ({ text }) => {
   );
 };
 
-const TYPEWRITER_CHAR_DELAY_MS = 15;
+const TYPEWRITER_CHAR_DELAY_MS = 50;
 const MAX_TYPEWRITER_CHARACTERS = 900;
 const TYPEWRITER_CURSOR = '▌';
 
@@ -557,11 +557,11 @@ const ProgressiveEvidenceMarkdown = ({ text, animate = false, onProgress }: { te
   }, [animate, visibleCount, onProgress]);
 
   const visibleText = `${characters.slice(0, visibleCount).join('')}${animate && !isComplete ? TYPEWRITER_CURSOR : ''}`;
+  const renderedText = animate && isComplete ? `${animatedText}${staticText}` : visibleText;
 
   return (
     <div className={animate && !isComplete ? 'typewriter-reveal active' : 'typewriter-reveal'}>
-      <EvidenceMarkdown text={visibleText} />
-      {animate && staticText && <EvidenceMarkdown text={staticText} />}
+      <EvidenceMarkdown text={renderedText} />
     </div>
   );
 };
@@ -580,40 +580,42 @@ const buildLocalFallbackAnswer = (question, files, messages) => {
 
   if (!lines.length) {
     return [
+      '## 🎯 핵심 요약',
       questionIntro,
       '',
       '현재 분석할 문서 본문이 없습니다.',
       '',
-      '[필요한 자료]',
+      '## 📚 주요 내용 상세 분석',
+      '',
+      '### 1. 필요한 자료',
       files.length
         ? `- 선택된 파일: ${fileNames.join(', ')}`
         : '- 파일을 먼저 업로드해야 질문에 맞는 근거 문장을 뽑을 수 있습니다.',
       '- "40대 여성 이동 동향"처럼 통계성 질문은 연령/성별/지역/기간이 들어 있는 표, CSV, PDF, HWPX 같은 원본 자료가 필요합니다.',
       '',
-      '[다음 질문 예시]',
+      '### 2. 다음 질문 예시',
       '- 업로드한 문서에서 40대 여성 이동 동향을 요약해줘.',
       '- 40대 여성의 이동 증가/감소 지역을 표로 정리해줘.',
     ].join('\n');
   }
 
   return [
+    '## 🎯 핵심 요약',
     questionIntro,
     '',
-    'LLM 없이 로컬 기본 분석으로 처리했습니다.',
+    lines.slice(0, 4).map((line, index) => `${index + 1}. ${line}`).join('\n'),
     '',
-    '[핵심 내용 요약]',
-    ...(lines.length
-      ? lines.slice(0, 4).map((line, index) => `${index + 1}. ${line}`)
-      : [
-          `1. ${fileNames.join(', ')} 기준으로 분석 준비가 되었습니다.`,
-          '2. 아직 충분한 문서 텍스트가 없어 파일명과 기존 대화 중심으로 정리했습니다.',
-        ]),
+    '## 📚 주요 내용 상세 분석',
     '',
-    '[중요 문장 발췌]',
-    ...(lines.length ? lines.slice(0, 6).map((line) => `- ${line}`) : ['- 아직 발췌할 본문 텍스트가 없습니다.']),
+    '### 1. 질문 기준 핵심 해석',
+    question ? `- **분석 기준:** "${question}"` : '- **분석 기준:** 문서 전체 요약',
+    '- **근거 범위:** 현재 남아 있는 문서 기록과 대화 기록에서 확인되는 내용만 사용했습니다.',
     '',
-    '[질문 반영]',
-    question ? `질문 "${question}"에 맞춰 내용을 우선 정리했습니다.` : '질문이 비어 있어 전체 요약 기준으로 정리했습니다.',
+    '### 2. 주요 내용 상세 분석',
+    ...lines.slice(0, 6).map((line) => `- ${line}`),
+    '',
+    '[근거 구간]',
+    ...lines.slice(0, 4).map((line) => `- ${line}`),
   ].join('\n');
 };
 
@@ -875,7 +877,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       canHydratePreview &&
       cachedPreview?.kind === 'meta' &&
       String(cachedPreview.message || '').includes('저장된 기록');
-    if (cachedPreview && !isStaleStoredMeta) {
+    if (cachedPreview && cachedPreview.kind !== 'loading' && !isStaleStoredMeta) {
       if (isCurrentPreviewWork()) setSourcePreview(cachedPreview);
       return undefined;
     }
@@ -922,7 +924,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
 
     if (isConvertibleDocument) {
       let cancelled = false;
-      if (isCurrentPreviewWork()) cacheSourcePreview(fileKey, {
+      if (isCurrentPreviewWork()) setSourcePreview({
         kind: 'loading',
         url: '',
         text: '',
