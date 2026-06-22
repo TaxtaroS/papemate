@@ -1241,10 +1241,10 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     const nextQuestion = overrideQuestion || promptText.trim();
     const suggestedDepth = Math.max(0, Number(options.suggestedDepth || 0));
     const newFiles = [...filesToSend];
-    const activeUploadFiles = activeFiles.filter(isUploadableFile);
     const pendingFiles = newFiles.length > 0 ? mergeUniqueFiles(activeFiles, newFiles) : [...activeFiles];
+    const activeUploadFiles = pendingFiles.filter(isUploadableFile);
     const question = nextQuestion || '업로드한 문서를 요약해줘';
-    const compareMode = isCompareQuestion(question);
+    const compareMode = isCompareQuestion(question) || pendingFiles.length >= 2;
     const selectedPreviewFile = selectedSourceFile && pendingFiles.some((file) => getFileKey(file) === getFileKey(selectedSourceFile))
       ? selectedSourceFile
       : null;
@@ -1252,11 +1252,25 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     const selectedFileKey = selectedFileAfterUpload ? getFileKey(selectedFileAfterUpload) : '';
     const selectedUploadFile = pendingFiles.find((file) => getFileKey(file) === selectedFileKey && isUploadableFile(file));
     const requestFiles = compareMode
-      ? (newFiles.length > 0 ? pendingFiles.filter(isUploadableFile) : activeUploadFiles)
+      ? activeUploadFiles
       : (selectedUploadFile ? [selectedUploadFile] : []);
+    const requestDocumentIds = (compareMode ? pendingFiles : (selectedFileAfterUpload ? [selectedFileAfterUpload] : []))
+      .map(getFileKey);
     const hasNewUpload = newFiles.length > 0;
     if (!nextQuestion && pendingFiles.length === 0) {
       window.alert('질문을 입력하거나 파일을 선택해주세요.');
+      return;
+    }
+    if (isCompareQuestion(question) && pendingFiles.length < 2) {
+      const assistantMessage = {
+        id: `ai-compare-documents-required-${Date.now()}`,
+        role: 'ai',
+        text: '📄 논문 비교를 위해서는 2개 이상의 문서를 업로드하여 주세요.',
+        createdAt: nowIso(),
+      };
+      const nextMessages = [...messages, assistantMessage];
+      setMessages(nextMessages);
+      upsertRecentConversation(nextMessages, '논문 비교 문서 업로드 안내', pendingFiles);
       return;
     }
 
@@ -1313,6 +1327,8 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       const analysisHistory = hasNewUpload ? '' : getLatestAnalysisText(messages);
       const response = await analysisAPI.chat(question, requestFiles, {
         conversationId: recentConversationIdRef.current,
+        documentIds: requestDocumentIds,
+        useCurrentFilesOnly: true,
         selectedSourceName: compareMode ? '' : selectedUploadFile?.name || selectedFileAfterUpload?.name || '',
         compareMode,
       }, analysisHistory);

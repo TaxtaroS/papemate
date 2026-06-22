@@ -53,6 +53,16 @@ def _filter_selected_docs(docs: list[dict], selected_source_name: str, compare_m
     return matched
 
 
+def _filter_docs_by_ids(docs: list[dict], document_ids: list[str]) -> list[dict]:
+    selected_ids = {str(document_id).strip() for document_id in document_ids if str(document_id).strip()}
+    if not selected_ids:
+        return []
+    return [
+        doc for doc in docs
+        if str(doc.get("document_id", "")).strip() in selected_ids
+    ]
+
+
 def _merge_cached_docs(existing_docs: list[dict], new_docs: list[dict]) -> list[dict]:
     """같은 세션에서 같은 파일명이 다시 올라오면 최신 추출 결과로 교체합니다."""
 
@@ -81,6 +91,8 @@ def _merge_cached_docs(existing_docs: list[dict], new_docs: list[dict]) -> list[
 async def analyze_chat(
     question: str = Form(""),
     conversation_id: str = Form(""),
+    document_ids: list[str] = Form(default=[]),
+    use_current_files_only: str = Form("false"),
     llm_provider: str = Form("auto"),
     openai_api_key: str = Form(""),
     google_api_key: str = Form(""),
@@ -94,21 +106,31 @@ async def analyze_chat(
     analysis_text = analysis_text.strip()
     session_key = conversation_id.strip()
     should_compare = _is_truthy(compare_mode)
+    current_files_only = _is_truthy(use_current_files_only)
+    requested_document_ids = [
+        str(document_id).strip()
+        for document_id in document_ids
+        if str(document_id).strip()
+    ]
+    if current_files_only and not requested_document_ids:
+        return {
+            "answer": "현재 선택된 문서가 없습니다. 비교할 문서를 다시 업로드해주세요.",
+            "intent": "system",
+        }
     if files:
         validate_upload_count(files)
         extracted_docs = []
     elif session_key and session_key in DOCUMENT_SESSION_CACHE:
-        extracted_docs = _filter_selected_docs(
-            DOCUMENT_SESSION_CACHE[session_key],
-            selected_source_name,
-            should_compare,
-        )
+        cached_docs = DOCUMENT_SESSION_CACHE[session_key]
+        if current_files_only:
+            cached_docs = _filter_docs_by_ids(cached_docs, requested_document_ids)
+        extracted_docs = _filter_selected_docs(cached_docs, selected_source_name, should_compare)
     elif analysis_text:
         extracted_docs = []
     else:
         extracted_docs = []
 
-    for upload in files:
+    for index, upload in enumerate(files):
         # UploadFile은 FastAPI가 제공하는 업로드 파일 객체입니다.
         # await upload.read()로 파일 내용을 bytes 형태로 읽습니다.
         content = await read_upload_content(upload)
@@ -117,6 +139,8 @@ async def analyze_chat(
         # 결과 text는 이후 기본 분석과 LLM 분석의 공통 입력이 됩니다.
         try:
             extracted_doc = extract_file_document(upload.filename or "unknown", content)
+            if index < len(requested_document_ids):
+                extracted_doc["document_id"] = requested_document_ids[index]
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"{upload.filename or '파일'} 분석 중 오류가 발생했습니다: {exc}") from exc
 
@@ -125,11 +149,23 @@ async def analyze_chat(
     # fallback_answer는 OpenAI 키가 없어도 항상 만들 수 있는 기본 분석입니다.
     # 키워드와 중요 문장 후보를 Python 로직으로 추출합니다.
     if files and session_key and extracted_docs:
-        DOCUMENT_SESSION_CACHE[session_key] = _merge_cached_docs(
-            DOCUMENT_SESSION_CACHE.get(session_key, []),
-            extracted_docs,
+        DOCUMENT_SESSION_CACHE[session_key] = (
+            list(extracted_docs)
+            if current_files_only
+            else _merge_cached_docs(DOCUMENT_SESSION_CACHE.get(session_key, []), extracted_docs)
         )
+        if current_files_only:
+            extracted_docs = _filter_docs_by_ids(extracted_docs, requested_document_ids)
         extracted_docs = _filter_selected_docs(extracted_docs, selected_source_name, should_compare)
+
+    if should_compare and len([
+        doc for doc in extracted_docs
+        if str(doc.get("text") or doc.get("content") or "").strip()
+    ]) < 2:
+        return {
+            "answer": "📄 논문 비교를 위해서는 2개 이상의 문서를 업로드하여 주세요.",
+            "intent": "system",
+        }
 
     return run_analysis_pipeline(
         question=question,
