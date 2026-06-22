@@ -55,7 +55,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 - `APP_ENV=production`
 - `JWT_SECRET_KEY`
-- `OPENAI_API_KEY` 또는 사용하는 LLM 키
+- `OPENAI_API_KEY`
 - `GOOGLE_CLIENT_ID`
 - `CORS_ORIGINS`
 
@@ -66,8 +66,10 @@ EC2 Docker 실행:
 ```bash
 cp .env.example .env
 cp backend/.env.example backend/.env
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
+
+이 compose 배포는 EC2에서 `backend`와 `mongo` 컨테이너만 실행합니다. 프론트엔드는 Vercel 프로젝트의 `frontend` 루트에서 별도로 빌드/배포합니다.
 
 파트별 환경 설정 가이드
 -----------------------

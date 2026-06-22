@@ -290,40 +290,13 @@ def _resolve_llm_provider_and_keys(
     openai_api_key: str | None,
     google_api_key: str | None,
 ) -> tuple[str, str, str, bool]:
-    """요청값과 환경변수를 합쳐 실제 사용할 LLM provider/key를 결정합니다."""
-
-    selected = (provider or "auto").strip().lower()
-    if selected not in {"auto", "gemini", "google", "openai"}:
-        selected = "auto"
+    """요청값과 환경변수를 합쳐 실제 사용할 OpenAI provider/key를 결정합니다."""
 
     request_openai = (openai_api_key or "").strip()
-    request_google = (google_api_key or "").strip()
     env_openai = settings.openai_api_key
-    env_google = settings.gemini_api_key or settings.google_api_key
 
-    if selected == "openai":
-        if not request_openai and not env_openai and (request_google or env_google):
-            key_source = "request" if request_google else "env"
-            return "gemini", request_google or env_google, key_source, True
-        key_source = "request" if request_openai else "env" if env_openai else "none"
-        return "openai", request_openai or env_openai, key_source, key_source != "none"
-
-    if selected in {"gemini", "google"}:
-        if not request_google and not env_google and (request_openai or env_openai):
-            key_source = "request" if request_openai else "env"
-            return "openai", request_openai or env_openai, key_source, True
-        key_source = "request" if request_google else "env" if env_google else "none"
-        return "gemini", request_google or env_google, key_source, key_source != "none"
-
-    if request_openai:
-        return "openai", request_openai, "request", True
-    if request_google:
-        return "gemini", request_google, "request", True
-    if env_openai:
-        return "openai", env_openai, "env", True
-    if env_google:
-        return "gemini", env_google, "env", True
-    return "openai", "", "none", False
+    key_source = "request" if request_openai else "env" if env_openai else "none"
+    return "openai", request_openai or env_openai, key_source, key_source != "none"
 
 
 def run_analysis_pipeline(
@@ -331,7 +304,7 @@ def run_analysis_pipeline(
     question: str,
     extracted_docs: list[dict],
     uploaded_filenames: list[str] | None = None,
-    llm_provider: str = "gemini",
+    llm_provider: str = "openai",
     openai_api_key: str | None = None,
     google_api_key: str | None = None,
     analysis_text: str = "",
@@ -340,7 +313,7 @@ def run_analysis_pipeline(
 
     전체 흐름:
     1. 업로드 문서에서 로컬 fallback 분석을 먼저 만듭니다.
-    2. API 키가 있으면 OpenAI/Gemini LLM 분석을 추가로 시도합니다.
+    2. API 키가 있으면 OpenAI LLM 분석을 추가로 시도합니다.
     3. 차트/표 요청이면 JSON을 꺼내고, 문서에 없는 수치가 섞였는지 검사합니다.
     4. 일반 답변이면 grounding 검증으로 문서 근거와의 일치도를 확인합니다.
     5. 실패 상황에서도 빈 응답 대신 로컬 분석 결과를 내려 프론트가 계속 동작하게 합니다.
@@ -416,8 +389,8 @@ def run_analysis_pipeline(
         question,
         extracted_docs,
         provider=selected_provider,
-        openai_api_key=resolved_key if selected_provider == "openai" else None,
-        google_api_key=resolved_key if selected_provider == "gemini" else None,
+        openai_api_key=resolved_key,
+        google_api_key=None,
         analysis_text=analysis_text,
         relevant_chunks=fallback_answer.get("relevant_chunks", []),
         web_docs=web_docs,

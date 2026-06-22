@@ -870,26 +870,6 @@ export const BottomPromptInput = styled.div`
       &::placeholder { color: #94a3b8; }
     }
 
-    .provider-select {
-      flex: 0 0 auto;
-      max-width: 92px;
-      height: 34px;
-      margin: 0 8px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      background: #f8fafc;
-      color: #334155;
-      font-size: 12px;
-      font-weight: 800;
-      outline: none;
-      cursor: pointer;
-
-      &:focus {
-        border-color: #0ea5a4;
-        background: #ffffff;
-      }
-    }
-
     button {
       border: none;
       background: transparent;

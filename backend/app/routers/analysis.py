@@ -150,8 +150,8 @@ async def generate_title(
     analysis_text: str = Form("")
 ):
     selected_provider = (llm_provider or "auto").strip().lower()
-    if selected_provider not in {"auto", "gemini", "google", "openai"}:
-        selected_provider = "auto"
+    if selected_provider not in {"auto", "openai"}:
+        selected_provider = "openai"
     
     from ..services.llm.title_generator import generate_chat_title
     

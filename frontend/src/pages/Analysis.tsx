@@ -664,7 +664,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
   const [isResizingSource, setIsResizingSource] = useState(false);
   const [isVisualLibraryCollapsed, setIsVisualLibraryCollapsed] = useState(true);
   const [isClipMenuOpen, setIsClipMenuOpen] = useState(false);
-  const [llmProvider, setLlmProvider] = useState('auto');
 
   const currentInviteCode = currentProject?.inviteCode || restoredData?.inviteCode || '저장 후 생성';
   const sourceFiles = useMemo(() => mergeUniqueFiles(activeFiles, files), [activeFiles, files]);
@@ -1054,9 +1053,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     setIsAnalyzing(true);
 
     try {
-      const response = await analysisAPI.createVisual(visualType, requestFiles, analysisText, {
-        llmProvider,
-      });
+      const response = await analysisAPI.createVisual(visualType, requestFiles, analysisText);
       const visual = response.data?.visual || response.data;
       const visualAsset = {
         ...visual,
@@ -1316,14 +1313,11 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       const analysisHistory = hasNewUpload ? '' : getLatestAnalysisText(messages);
       const response = await analysisAPI.chat(question, requestFiles, {
         conversationId: recentConversationIdRef.current,
-        llmProvider,
         selectedSourceName: compareMode ? '' : selectedUploadFile?.name || selectedFileAfterUpload?.name || '',
         compareMode,
       }, analysisHistory);
       const providerLabelMap: Record<string, string> = {
         openai: 'OpenAI',
-        gemini: 'Gemini',
-        google: 'Gemini',
       };
       const providerNote = response.data?.provider
         ? response.data?.llm_used
@@ -1384,9 +1378,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       
       // 첫 질문인 경우, 백그라운드에서 AI 채팅방 제목 생성 호출
       if (isNewConversation) {
-        analysisAPI.generateChatTitle(question, {
-          llmProvider,
-        }, analysisHistory).then(res => {
+        analysisAPI.generateChatTitle(question, analysisHistory).then(res => {
           if (res.data?.title) {
             upsertRecentConversation(messagesWithAnswer, question, pendingFiles, res.data.title);
             // 사이드바 등 다른 컴포넌트가 최신 목록을 알 수 있도록 이벤트 발송
@@ -2068,17 +2060,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
                 placeholder={files.length > 0 ? `${files.length}개 파일 기준으로 질문을 입력하세요...` : '분석 질문을 입력하세요...'}
                 onChange={(event) => setPromptText(event.target.value)}
               />
-              <select
-                className="provider-select"
-                value={llmProvider}
-                onChange={(event) => setLlmProvider(event.target.value)}
-                title="분석 엔진 선택"
-                aria-label="분석 엔진 선택"
-              >
-                <option value="auto">자동</option>
-                <option value="openai">OpenAI</option>
-                <option value="gemini">Gemini</option>
-              </select>
               <button type="button" onClick={() => handleSendMessage(files)}>전송</button>
             </div>
           </BottomPromptInput>

@@ -1,13 +1,12 @@
-"""Chat title generation across configured LLM providers."""
+"""Chat title generation through the deployment LLM provider."""
 
 from app.core.config import settings
-from app.services.llm.gemini_provider import call_gemini
 from app.services.openai_client import OPENAI_TITLE_TIMEOUT_SECONDS, make_openai_client
 
 
 def generate_chat_title(
     question: str,
-    provider: str = "gemini",
+    provider: str = "openai",
     openai_api_key: str | None = None,
     google_api_key: str | None = None,
     analysis_text: str = "",
@@ -21,22 +20,8 @@ def generate_chat_title(
     )
 
     selected_provider = (provider or "auto").strip().lower()
-    if selected_provider == "auto":
-        if openai_api_key or settings.openai_api_key:
-            selected_provider = "openai"
-        elif google_api_key or settings.gemini_api_key or settings.google_api_key:
-            selected_provider = "gemini"
-        else:
-            selected_provider = "openai"
-
-    if selected_provider in {"gemini", "google"}:
-        api_key = google_api_key or settings.gemini_api_key or settings.google_api_key
-        if not api_key:
-            return question[:20]
-        try:
-            return call_gemini(api_key, settings.gemini_model, "", prompt).strip().replace('"', "").replace("'", "")[:40]
-        except Exception:
-            return question[:20]
+    if selected_provider not in {"auto", "openai"}:
+        selected_provider = "openai"
 
     api_key = openai_api_key or settings.openai_api_key
     if not api_key:

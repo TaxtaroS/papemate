@@ -5,7 +5,6 @@ import json
 from app.core.config import settings
 from app.services.analysis.compare_builder import build_document_compare_answer
 from app.services.analysis.query_analyzer import is_compare_request
-from app.services.llm.gemini_provider import analyze_with_gemini
 from app.services.llm.openai_provider import analyze_with_openai
 from app.services.llm.response_utils import llm_error
 from app.services.table.chart_request_parser import parse_chart_request
@@ -49,24 +48,17 @@ def _compare_response(compare_payload: dict, provider: str, model: str | None = 
 def analyze_with_llm(
     question: str,
     extracted_docs: list[dict],
-    provider: str = "gemini",
+    provider: str = "openai",
     openai_api_key: str | None = None,
     google_api_key: str | None = None,
     analysis_text: str = "",
     relevant_chunks: list[dict] | None = None,
     web_docs: list[dict] | None = None,
 ) -> dict:
-    selected_provider = (provider or "auto").strip().lower()
-    if selected_provider == "auto":
-        if openai_api_key or settings.openai_api_key:
-            selected_provider = "openai"
-        elif google_api_key or settings.gemini_api_key or settings.google_api_key:
-            selected_provider = "gemini"
-        else:
-            selected_provider = "openai"
-
-    provider_name = "gemini" if selected_provider in {"gemini", "google"} else "openai"
-    model_name = settings.gemini_model if provider_name == "gemini" else settings.openai_model
+    # Deployment provider policy: accept legacy provider inputs from the UI/API,
+    # but route all LLM analysis through OpenAI for a single production path.
+    provider_name = "openai"
+    model_name = settings.openai_model
 
     if is_compare_request(question) or len([doc for doc in extracted_docs if str(doc.get("text", "")).strip()]) >= 2:
         compare_payload = build_document_compare_answer(question, extracted_docs)
@@ -87,12 +79,6 @@ def analyze_with_llm(
                 provider_name,
                 model_name,
             )
-
-    if selected_provider in {"gemini", "google"}:
-        api_key = google_api_key or settings.gemini_api_key or settings.google_api_key
-        if not api_key:
-            return llm_error(MISSING_API_KEY_MESSAGE, "gemini", settings.gemini_model)
-        return analyze_with_gemini(question, extracted_docs, api_key, analysis_text, relevant_chunks, web_docs)
 
     api_key = openai_api_key or settings.openai_api_key
     if not api_key:
