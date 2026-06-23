@@ -43,15 +43,18 @@ const DEFAULT_GOOGLE_ALLOWED_ORIGINS = [
   'http://127.0.0.1:3000',
   'http://localhost:3004',
   'http://127.0.0.1:3004',
+  'https://papemate.vercel.app',
 ];
 
 const getAllowedGoogleOrigins = () => {
   const configured = import.meta.env.VITE_GOOGLE_ALLOWED_ORIGINS || '';
-  const origins = configured
-    .split(',')
+  const origins = [
+    ...DEFAULT_GOOGLE_ALLOWED_ORIGINS,
+    ...configured.split(','),
+  ]
     .map((origin: string) => origin.trim().replace(/\/$/, ''))
     .filter(Boolean);
-  return origins.length ? origins : DEFAULT_GOOGLE_ALLOWED_ORIGINS;
+  return Array.from(new Set(origins));
 };
 
 const loadGoogleScript = () =>
