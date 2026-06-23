@@ -186,7 +186,8 @@ export const Container = styled.div`
 
   .code-input {
     min-width: 0;
-    flex: 1;
+    flex: 0 0 132px;
+    width: 132px;
     border: none;
     padding: 0 8px;
     color: #92400e;
@@ -253,8 +254,8 @@ export const Container = styled.div`
 
     .code-row {
       margin: 0;
-      width: 100%;
-      max-width: none;
+      width: 276px;
+      max-width: 100%;
     }
 
     .notice {
@@ -297,7 +298,8 @@ export const Container = styled.div`
     gap: 10px;
 
     .code-row {
-      flex-wrap: wrap;
+      width: 276px;
+      max-width: 100%;
     }
 
     .code-label,
@@ -450,14 +452,14 @@ export const ProjectLoadBar = styled.div`
     display: flex;
     align-items: center;
     gap: 8px;
-    flex: 1 1 360px;
+    flex: 0 0 auto;
     min-width: 0;
   }
 
   .support-code-input {
     height: 32px;
-    flex: 1 1 180px;
-    width: 100%;
+    flex: 0 0 220px;
+    width: 220px;
     min-width: 150px;
     max-width: 220px;
     border: 1px solid #bfdbfe;
@@ -512,10 +514,10 @@ export const ProjectLoadBar = styled.div`
     }
 
     .support-code-input {
-      flex: 1 1 168px;
-      width: 100%;
+      flex: 0 0 210px;
+      width: 210px;
       min-width: 0;
-      max-width: none;
+      max-width: 210px;
       height: 34px;
     }
 
