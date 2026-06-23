@@ -166,28 +166,32 @@ function AuthModal({
 
   useEffect(() => {
     if (modalMode !== 'login' && modalMode !== 'signup') return;
-    if (!googleClientId) {
-      let cancelled = false;
+    let cancelled = false;
 
-      authAPI.googleConfig()
-        .then((response) => {
-          if (cancelled) return;
-          const clientId = String(response.data?.client_id || '').trim();
-          if (clientId) {
-            setRuntimeGoogleClientId(clientId);
-            return;
-          }
-          onGoogleError('Google Client ID가 서버 .env에도 설정되지 않았습니다.');
-        })
-        .catch(() => {
-          if (!cancelled) onGoogleError('Google Client ID 설정을 서버에서 불러오지 못했습니다.');
-        });
+    authAPI.googleConfig()
+      .then((response) => {
+        if (cancelled) return;
+        const clientId = String(response.data?.client_id || '').trim();
+        if (clientId) {
+          setRuntimeGoogleClientId(clientId);
+          return;
+        }
+        if (!envGoogleClientId) onGoogleError('Google Client ID가 서버 .env에도 설정되지 않았습니다.');
+      })
+      .catch(() => {
+        if (!cancelled && !envGoogleClientId) {
+          onGoogleError('Google Client ID 설정을 서버에서 불러오지 못했습니다.');
+        }
+      });
 
-      return () => {
-        cancelled = true;
-      };
-    }
+    return () => {
+      cancelled = true;
+    };
+  }, [modalMode, envGoogleClientId, onGoogleError]);
 
+  useEffect(() => {
+    if (modalMode !== 'login' && modalMode !== 'signup') return;
+    if (!googleClientId) return;
     if (!googleOriginAllowed) {
       onGoogleError(`현재 주소(${window.location.origin})가 Google 로그인 허용 출처에 없습니다.`);
       return;
