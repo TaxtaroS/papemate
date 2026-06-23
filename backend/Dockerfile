@@ -13,7 +13,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-kor fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt ./requirements.txt
+COPY backend/requirements.docker.txt ./requirements.txt
 RUN python -m pip install --upgrade pip \
     && pip install --no-cache-dir --retries 10 --timeout 120 -r requirements.txt
 
