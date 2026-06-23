@@ -1246,7 +1246,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
     const pendingFiles = newFiles.length > 0 ? mergeUniqueFiles(activeFiles, newFiles) : [...activeFiles];
     const activeUploadFiles = pendingFiles.filter(isUploadableFile);
     const question = nextQuestion || '업로드한 문서를 요약해줘';
-    const compareMode = isCompareQuestion(question) || pendingFiles.length >= 2;
+    const compareMode = isCompareQuestion(question);
     const selectedPreviewFile = selectedSourceFile && pendingFiles.some((file) => getFileKey(file) === getFileKey(selectedSourceFile))
       ? selectedSourceFile
       : null;
