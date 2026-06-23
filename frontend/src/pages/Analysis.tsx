@@ -656,7 +656,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
   const [files, setFiles] = useState([]);
   const [activeFiles, setActiveFiles] = useState([]);
   const [promptText, setPromptText] = useState('');
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<any[]>([
     { id: 'intro', role: 'ai', text: '분석을 시작하려면 파일을 업로드한 뒤 질문을 입력하세요.' },
   ]);
   const [visuals, setVisuals] = useState([]);
@@ -669,7 +669,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
   const [selectedVisual, setSelectedVisual] = useState(null);
   const [expandedVisualIds, setExpandedVisualIds] = useState<string[]>([]);
   const [selectedSourceKey, setSelectedSourceKey] = useState('');
-  const [sourcePreview, setSourcePreview] = useState({ kind: 'empty', url: '', text: '', message: '' });
+  const [sourcePreview, setSourcePreview] = useState<any>({ kind: 'empty', url: '', text: '', message: '' });
   const [sourcePreviewCache, setSourcePreviewCache] = useState<Record<string, any>>({});
   const [sourcePaneWidth, setSourcePaneWidth] = useState(72);
   const [isResizingSource, setIsResizingSource] = useState(false);

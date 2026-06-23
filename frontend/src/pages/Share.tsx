@@ -224,7 +224,7 @@ const splitEvidenceSections = (text = '') => {
   return { main, evidence };
 };
 
-const hasVisualPayload = (asset = {}) => {
+const hasVisualPayload = (asset: any = {}) => {
   const data = Array.isArray(asset.data) ? asset.data : [];
   const rows = Array.isArray(asset.rows) ? asset.rows : [];
   const columns = Array.isArray(asset.columns) ? asset.columns : [];
@@ -234,7 +234,7 @@ const hasVisualPayload = (asset = {}) => {
   return data.length > 0 || rows.length > 0 || columns.length > 0 || series.length > 0 || (imageVisualKinds.has(kind) && items.length > 0);
 };
 
-const hasTimelineAssetContent = (asset = {}) => {
+const hasTimelineAssetContent = (asset: any = {}) => {
   if (!asset) return false;
   if (asset.type === 'question' || asset.type === 'answer') return Boolean(String(asset.text || '').trim());
   if (asset.type === 'visual') return hasVisualPayload(asset);
@@ -247,7 +247,7 @@ const getImageVisualItem = (visual: any = {}) => {
   return asArray(visual.items).find((item) => item?.dataUrl || item?.previewText || item?.ocrText || item?.tableText) || null;
 };
 
-const mergeProjectForShare = (baseProject = {}, incomingProject = {}) => {
+const mergeProjectForShare = (baseProject: any = {}, incomingProject: any = {}) => {
   const baseVisuals = asArray(baseProject.visuals);
   const incomingVisuals = asArray(incomingProject.visuals);
   const preferredVisuals = incomingVisuals.length > baseVisuals.length ? incomingVisuals : baseVisuals;
@@ -296,7 +296,6 @@ const coerceGraphAsset = (asset, promptText = '') => {
     ...asset,
     type: 'chart',
     kind: 'chart',
-    chartType: /선|꺾은선|line/i.test(promptText) ? 'line' : 'bar',
     xAxisKey,
     chartType: shouldUseLine ? 'line' : 'bar',
     series: numericKeys.slice(0, 6).map((key, index) => ({
@@ -422,7 +421,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
         getNumericOrder(item?.importedAt || item?.time || item?.id, index + 1),
       ])
       .filter(([id]) => id);
-    return new Map(entries);
+    return new Map(entries as [string, number][]);
   }, [room.importedVisuals]);
   const activeProjectVisuals = useMemo(
     () => asArray(activeProject?.visuals).filter((visual) => visual?.id && hasVisualPayload(visual)),

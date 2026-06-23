@@ -28,7 +28,7 @@ const stripLargeDataUrls = (value) => {
   if (Array.isArray(value)) return value.map(stripLargeDataUrls);
   if (!value || typeof value !== 'object') return trimText(value);
 
-  const next = {};
+  const next: any = {};
   Object.entries(value).forEach(([key, entry]) => {
     if (key === 'dataUrl' && typeof entry === 'string') {
       if (entry.length <= MAX_STORED_DATA_URL_LENGTH) {
@@ -305,7 +305,6 @@ export const mergeProjectsIntoSharedIndex = (projects) => {
 
 // 예전 버전에서 저장한 키를 현재 로그인 계정의 새 키로 한 번만 옮깁니다.
 // 이미 다른 계정으로 이전된 데이터는 다시 복사하지 않도록 migratedTo 표시를 남깁니다.
-// TODO: 배포 전에는 반드시 계정별 스코프(getUserScope)로 복구할 것!
 // 로그인 직후 호출됩니다.
 // 목적: 예전 작업물이 "사라진 것처럼 보이는" 문제를 막고, 현재 계정 저장소로 안전하게 옮기기.
 export const migrateCurrentUserStorage = () => {

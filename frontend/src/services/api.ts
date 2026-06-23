@@ -114,14 +114,8 @@ export const authAPI = {
   googleConfig: () =>
     apiClient.get('/api/auth/google/config'),
 
-  kakaoLogin: (code: string, redirectUri?: string) =>
-    apiClient.post('/api/auth/kakao', { code, redirect_uri: redirectUri }),
-
   kakaoConfig: () =>
     apiClient.get('/api/auth/kakao/config'),
-
-  naverLogin: (code: string, state: string, redirectUri?: string) =>
-    apiClient.post('/api/auth/naver', { code, state, redirect_uri: redirectUri }),
 
   naverConfig: () =>
     apiClient.get('/api/auth/naver/config'),

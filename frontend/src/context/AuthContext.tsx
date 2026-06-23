@@ -45,13 +45,13 @@ const createLocalAuthResponse = (username, password, { allowCreate = true } = {}
   const encodedPassword = encodeLocalPassword(password);
 
   if (stored?.password && stored.password !== encodedPassword) {
-    const error = new Error('비밀번호가 올바르지 않습니다.');
+    const error = new Error('비밀번호가 올바르지 않습니다.') as Error & { userMessage?: string };
     error.userMessage = '비밀번호가 올바르지 않습니다.';
     throw error;
   }
 
   if (!stored && !allowCreate) {
-    const error = new Error('등록되지 않은 아이디입니다.');
+    const error = new Error('등록되지 않은 아이디입니다.') as Error & { userMessage?: string };
     error.userMessage = '등록되지 않은 아이디입니다.';
     throw error;
   }
@@ -147,18 +147,6 @@ export const AuthProvider = ({ children }) => {
     const response = await authAPI.googleLogin(idToken);
     const { access_token, user: userData } = response.data;
 
-    applyAuthSession(access_token, userData);
-  };
-
-  const kakaoLogin = async (code, redirectUri) => {
-    const response = await authAPI.kakaoLogin(code, redirectUri);
-    const { access_token, user: userData } = response.data;
-    applyAuthSession(access_token, userData);
-  };
-
-  const naverLogin = async (code, state, redirectUri) => {
-    const response = await authAPI.naverLogin(code, state, redirectUri);
-    const { access_token, user: userData } = response.data;
     applyAuthSession(access_token, userData);
   };
 
@@ -265,8 +253,6 @@ export const AuthProvider = ({ children }) => {
         login,
         signup,
         googleLogin,
-        kakaoLogin,
-        naverLogin,
         acceptOAuthRedirect,
         logout,
         updateProfile,
