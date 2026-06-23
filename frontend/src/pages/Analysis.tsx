@@ -54,6 +54,15 @@ const createInviteCode = () => {
 
 const formatDate = () => new Date().toLocaleDateString('ko-KR').replace(/. /g, '.').slice(0, -1);
 const nowIso = () => new Date().toISOString();
+const formatAnalysisDuration = (startedAt: number) => {
+  const elapsedMs = Math.max(0, Date.now() - startedAt);
+  if (elapsedMs < 1000) return `${elapsedMs}ms`;
+  const elapsedSeconds = elapsedMs / 1000;
+  if (elapsedSeconds < 60) return `${elapsedSeconds.toFixed(1)}초`;
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = Math.round(elapsedSeconds % 60);
+  return `${minutes}분 ${seconds}초`;
+};
 const formatDateTime = (value) => {
   if (!value) return '';
   const text = String(value).trim();
@@ -1327,6 +1336,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
 
     try {
       const analysisHistory = hasNewUpload ? '' : getLatestAnalysisText(messages);
+      const analysisStartedAt = Date.now();
       const response = await analysisAPI.chat(question, requestFiles, {
         conversationId: recentConversationIdRef.current,
         documentIds: requestDocumentIds,
@@ -1337,11 +1347,12 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       const providerLabelMap: Record<string, string> = {
         openai: 'OpenAI',
       };
+      const analysisDurationNote = `분석 시간: ${formatAnalysisDuration(analysisStartedAt)}`;
       const providerNote = response.data?.provider
         ? response.data?.llm_used
-          ? `\n\n분석 엔진: PaperMate (${providerLabelMap[response.data.provider] || response.data.provider})`
-          : `\n\n분석 엔진: 로컬 기본 분석`
-        : '';
+          ? `\n\n분석 엔진: PaperMate (${providerLabelMap[response.data.provider] || response.data.provider}) · ${analysisDurationNote}`
+          : `\n\n분석 엔진: 로컬 기본 분석 · ${analysisDurationNote}`
+        : `\n\n${analysisDurationNote}`;
       const answer = response.data?.answer || response.data?.summary || buildLocalFallbackAnswer(question, pendingFiles, messages);
       const successMessage = hasNewUpload
         ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${uploadedFileNames}`, createdAt: nowIso() }
@@ -1390,7 +1401,6 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
         messagesWithAnswer.push({ id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}`, createdAt: nowIso(), suggestedDepth, suggestedQuestions });
       }
 
-      setMessages(messagesWithAnswer);
       setMessages(messagesWithAnswer);
       upsertRecentConversation(messagesWithAnswer, question, pendingFiles);
       
