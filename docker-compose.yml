@@ -22,6 +22,9 @@ services:
     environment:
       MONGO_URL: mongodb://mongo:27017
       ENABLE_API_DOCS: "false"
+      ENABLE_LOCAL_TRANSLATION: "false"
+      LOCAL_TRANSLATION_AUTO_INSTALL: "false"
+      ENABLE_TOPIC_MODELING: "false"
       HF_HOME: /root/.cache/huggingface
     volumes:
       - papermate_hf_cache:/root/.cache/huggingface
