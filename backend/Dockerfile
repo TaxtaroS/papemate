@@ -9,7 +9,9 @@ WORKDIR /app
 
 # OCR 이미지 분석을 위해 Tesseract를 포함합니다.
 # AI 연결 담당자가 LLM만 붙여도 기본 문서 추출/이미지 OCR은 같은 컨테이너에서 동작합니다.
-RUN apt-get update \
+RUN sed -i 's|http://deb.debian.org/debian|https://deb.debian.org/debian|g' /etc/apt/sources.list.d/debian.sources \
+    && sed -i 's|http://deb.debian.org/debian-security|https://deb.debian.org/debian-security|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-kor fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
