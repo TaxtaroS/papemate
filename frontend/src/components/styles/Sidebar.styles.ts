@@ -64,24 +64,27 @@ export const SidebarMain = styled.div`
 export const BrandRow = styled.div`
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: center;
   margin-bottom: 22px;
 `;
 
 export const CollapseButton = styled.button`
-  width: 30px;
-  height: 30px;
+  width: 100%;
+  min-height: 38px;
   border: 1px solid rgba(33, 113, 102, 0.12);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.62);
   color: #2f6f68;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
   cursor: pointer;
   transition: all 0.15s;
-  flex-shrink: 0;
+  box-sizing: border-box;
+  font-size: 13px;
+  font-weight: 800;
 
   &:hover {
     background: #ffffff;
@@ -92,6 +95,14 @@ export const CollapseButton = styled.button`
   svg {
     width: 17px;
     height: 17px;
+    flex-shrink: 0;
+  }
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 `;
 
@@ -131,7 +142,7 @@ export const BottomMenuGroup = styled.div`
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid rgba(47, 111, 104, 0.14);
 `;
 

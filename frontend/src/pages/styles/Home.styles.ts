@@ -19,19 +19,28 @@ export const Container = styled.div`
 `;
 
 export const SidebarSlot = styled.div<{ $collapsed?: boolean }>`
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 80;
   width: ${props => props.$collapsed ? '0px' : 'clamp(232px, 19vw, 280px)'};
   height: 100dvh;
-  flex-shrink: 0;
   overflow: visible;
+  pointer-events: ${props => props.$collapsed ? 'none' : 'auto'};
   transition: width 0.22s ease;
 
   @media (max-width: 900px) {
-    position: fixed;
-    inset: 0 auto 0 0;
-    z-index: 50;
     width: ${props => props.$collapsed ? '0px' : 'min(300px, 86vw)'};
-    pointer-events: ${props => props.$collapsed ? 'none' : 'auto'};
   }
+`;
+
+export const SidebarHoverRail = styled.div<{ $visible?: boolean }>`
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 70;
+  width: 14px;
+  display: ${props => props.$visible ? 'block' : 'none'};
+  cursor: pointer;
+  background: transparent;
 `;
 
 export const SidebarOpenButton = styled.button<{ $visible?: boolean; $isFullView?: boolean }>`
@@ -39,7 +48,7 @@ export const SidebarOpenButton = styled.button<{ $visible?: boolean; $isFullView
   top: ${props => props.$isFullView ? '50%' : '18px'};
   left: ${props => props.$isFullView ? '0' : '12px'};
   transform: ${props => props.$isFullView ? 'translateY(-50%)' : 'none'};
-  z-index: 30;
+  z-index: 75;
   width: ${props => props.$isFullView ? '36px' : '28px'};
   height: ${props => props.$isFullView ? '48px' : '28px'};
   border: 1px solid ${props => props.$isFullView ? 'rgba(20, 125, 115, 0.18)' : '#cbd5e1'};
@@ -69,10 +78,7 @@ export const MainContent = styled.main<{ $isFullView?: boolean; $sidebarCollapse
   flex: 1; display: flex; flex-direction: column; 
   background: #f9fbe7;      /* 💡 기본 베이스 미색 */
   padding: ${props => props.$isFullView ? '0px' : '24px 40px'}; 
-  padding-left: ${props => {
-    if (!props.$sidebarCollapsed) return props.$isFullView ? '0px' : '40px';
-    return props.$isFullView ? '0px' : '68px';
-  }};
+  padding-left: ${props => props.$isFullView ? '0px' : '68px'};
   min-width: 0;
   box-sizing: border-box; height: 100dvh; overflow: hidden; position: relative;
   transition: padding-left 0.22s ease;

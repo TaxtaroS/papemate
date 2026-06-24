@@ -61,9 +61,6 @@ function Sidebar({
           <TopBrandSection onClick={onLogoClick}>
             <img className="logo" src={papermateLogo} alt="PaperMate" />
           </TopBrandSection>
-          <CollapseButton type="button" onClick={onCollapse} aria-label="사이드바 접기">
-            <FiChevronLeft />
-          </CollapseButton>
         </BrandRow>
 
         <NavList>
@@ -110,6 +107,10 @@ function Sidebar({
 
       <SidebarFooter>
         <BottomMenuGroup>
+          <CollapseButton type="button" onClick={onCollapse} aria-label="사이드바 접기">
+            <FiChevronLeft />
+            <span>사이드바 숨기기</span>
+          </CollapseButton>
           <MenuBtn $active={viewMode === '분석 비교'} onClick={() => onMenuClick('분석 비교')}>
             <SidebarIcon active={viewMode === '분석 비교'}><FiPieChart /></SidebarIcon>
             <span className="menu-text">분석 · 요약</span>
