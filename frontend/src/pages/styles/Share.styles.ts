@@ -734,6 +734,114 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
     background: #ffffff;
   }
 
+  .answer-fold .markdown-body {
+    color: #334155;
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1.65;
+    white-space: normal;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+  }
+
+  .answer-fold .markdown-body p {
+    margin: 0 0 12px 0;
+  }
+
+  .answer-fold .markdown-body p:last-child {
+    margin-bottom: 0;
+  }
+
+  .answer-fold .markdown-body h1,
+  .answer-fold .markdown-body h2,
+  .answer-fold .markdown-body h3,
+  .answer-fold .markdown-body h4 {
+    color: #0f172a;
+    font-weight: 850;
+    line-height: 1.35;
+    margin: 18px 0 10px 0;
+  }
+
+  .answer-fold .markdown-body h1 { font-size: 18px; }
+  .answer-fold .markdown-body h2 { font-size: 17px; }
+  .answer-fold .markdown-body h3 { font-size: 15.5px; color: #0f766e; }
+  .answer-fold .markdown-body h4 { font-size: 14.5px; }
+
+  .answer-fold .markdown-body ul,
+  .answer-fold .markdown-body ol {
+    margin: 0 0 14px 0;
+    padding-left: 20px;
+  }
+
+  .answer-fold .markdown-body li {
+    margin-bottom: 6px;
+  }
+
+  .answer-fold .markdown-body strong {
+    color: #0f766e;
+    font-weight: 850;
+  }
+
+  .answer-fold .markdown-body table {
+    width: max-content;
+    min-width: 860px;
+    max-width: none;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 12px 0 16px 0;
+    background: #ffffff;
+    border: 1px solid #dbe7f0;
+    border-radius: 8px;
+    overflow: hidden;
+    table-layout: auto;
+  }
+
+  .answer-fold .markdown-body th,
+  .answer-fold .markdown-body td {
+    min-width: 180px;
+    padding: 10px 14px;
+    border-right: 1px solid #dbe7f0;
+    border-bottom: 1px solid #dbe7f0;
+    text-align: left;
+    vertical-align: top;
+    white-space: normal;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+
+  .answer-fold .markdown-body th:first-child,
+  .answer-fold .markdown-body td:first-child {
+    min-width: 110px;
+    width: 110px;
+  }
+
+  .answer-fold .markdown-body th {
+    background: #0ea5a4;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 900;
+  }
+
+  .answer-fold .markdown-body td {
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .answer-fold .markdown-body tr:nth-child(even) td {
+    background: #f8fafc;
+  }
+
+  .answer-fold .markdown-body tr:last-child td {
+    border-bottom: none;
+  }
+
+  .answer-fold .markdown-body th:last-child,
+  .answer-fold .markdown-body td:last-child {
+    border-right: none;
+  }
+
   .answer-evidence-panel {
     display: grid;
     gap: 8px;
@@ -786,6 +894,10 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
     line-height: 1.6;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+
+  .answer-evidence-content.markdown-body {
+    padding: 11px 12px;
   }
 
   .discussion-image {

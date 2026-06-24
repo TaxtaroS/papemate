@@ -3,6 +3,8 @@
 // 초보자 안내: 사용자가 실제로 보게 되는 한 화면 단위의 React 페이지 컴포넌트입니다.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Container,
   MainTimelineContent,
@@ -1361,7 +1363,11 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     const { main, evidence } = splitEvidenceSections(text);
     return (
       <>
-        {main && <div className="body">{main}</div>}
+        {main && (
+          <div className="body markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{main}</ReactMarkdown>
+          </div>
+        )}
         {evidence.length > 0 && (
           <div className="answer-evidence-panel">
             {evidence.map((section) => (
@@ -1370,7 +1376,9 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
                   <span>{section.title}</span>
                   <b>열어서 보기</b>
                 </summary>
-                <div className="answer-evidence-content">{section.body}</div>
+                <div className="answer-evidence-content markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{section.body}</ReactMarkdown>
+                </div>
               </details>
             ))}
           </div>
