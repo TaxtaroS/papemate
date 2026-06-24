@@ -104,7 +104,9 @@ export const DynamicVisualizer = ({
       : type || visualKindType || 'table';
 
   const renderImageExtraction = () => {
-    const imageItems = Array.isArray(items) ? items : [];
+    const imageItems = Array.isArray(items)
+      ? [...items].sort((a, b) => Number(Boolean(b?.dataUrl)) - Number(Boolean(a?.dataUrl)))
+      : [];
     if (imageItems.length === 0) {
       return (
         <div style={{ padding: 18, border: '1px solid #cbd5e1', borderRadius: 8, color: '#475569', background: '#f8fafc' }}>

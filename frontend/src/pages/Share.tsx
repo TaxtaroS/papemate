@@ -252,7 +252,13 @@ const hasTimelineAssetContent = (asset: any = {}) => {
 
 const getImageVisualItem = (visual: any = {}) => {
   if (!imageVisualKinds.has(visual.kind || visual.type)) return null;
-  return asArray(visual.items).find((item) => item?.dataUrl || item?.hasImage || item?.previewText || item?.ocrText || item?.tableText) || null;
+  const items = asArray(visual.items);
+  return (
+    items.find((item) => item?.dataUrl) ||
+    items.find((item) => item?.hasImage) ||
+    items.find((item) => item?.previewText || item?.ocrText || item?.tableText) ||
+    null
+  );
 };
 
 const getVisualImageStoreKeys = (visual: any = {}, item: any = {}, index = 0) =>
