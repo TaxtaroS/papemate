@@ -43,37 +43,6 @@ export const SidebarHoverRail = styled.div<{ $visible?: boolean }>`
   background: transparent;
 `;
 
-export const SidebarOpenButton = styled.button<{ $visible?: boolean; $isFullView?: boolean }>`
-  position: fixed;
-  top: ${props => props.$isFullView ? '50%' : '18px'};
-  left: ${props => props.$isFullView ? '0' : '12px'};
-  transform: ${props => props.$isFullView ? 'translateY(-50%)' : 'none'};
-  z-index: 75;
-  width: ${props => props.$isFullView ? '36px' : '28px'};
-  height: ${props => props.$isFullView ? '48px' : '28px'};
-  border: 1px solid ${props => props.$isFullView ? 'rgba(20, 125, 115, 0.18)' : '#cbd5e1'};
-  border-left: ${props => props.$isFullView ? 'none' : '1px solid #cbd5e1'};
-  border-radius: ${props => props.$isFullView ? '0 12px 12px 0' : '8px'};
-  background: #ffffff;
-  color: ${props => props.$isFullView ? '#126f67' : '#0f172a'};
-  display: ${props => props.$visible ? 'inline-flex' : 'none'};
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.1);
-
-  &:hover {
-    color: #0ea5a4;
-    border-color: #94a3b8;
-    transform: ${props => props.$isFullView ? 'translateY(-50%) translateX(2px)' : 'none'};
-  }
-
-  svg {
-    width: ${props => props.$isFullView ? '18px' : '16px'};
-    height: ${props => props.$isFullView ? '18px' : '16px'};
-  }
-`;
-
 export const MainContent = styled.main<{ $isFullView?: boolean; $sidebarCollapsed?: boolean }>`
   flex: 1; display: flex; flex-direction: column; 
   background: #f9fbe7;      /* 💡 기본 베이스 미색 */

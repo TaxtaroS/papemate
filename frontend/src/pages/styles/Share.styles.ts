@@ -799,7 +799,8 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
   }
 
   .visual-preview {
-    min-height: 220px;
+    min-height: 180px;
+    max-height: 240px;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     background: #f8fafc;
@@ -809,22 +810,25 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
     justify-content: center;
     overflow: hidden;
     width: 100%;
+    padding: 14px;
+    box-sizing: border-box;
   }
 
   .visual-preview-button {
-    padding: 0;
     cursor: zoom-in;
     text-align: left;
   }
 
   .visual-preview .dynamic-visualizer {
-    min-height: 220px !important;
-    padding: 8px 10px 14px 10px !important;
+    min-height: 180px !important;
+    max-height: 220px;
+    padding: 4px 8px 8px 8px !important;
   }
 
   .visual-preview .image-visual-thumb {
     width: 100%;
-    min-height: 220px;
+    min-height: 152px;
+    max-height: 210px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -837,8 +841,8 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
   }
 
   .visual-preview .image-visual-thumb img {
-    width: 100%;
-    max-height: 320px;
+    max-width: min(520px, 92%);
+    max-height: 190px;
     object-fit: contain;
     display: block;
   }
@@ -1498,6 +1502,8 @@ export const VisualPickerCard = styled.button<{ $loaded?: boolean }>`
     background: #f8fafc;
     border-bottom: 1px solid #e2e8f0;
     overflow: hidden;
+    padding: 10px;
+    box-sizing: border-box;
   }
 
   .image-visual-thumb {
@@ -1516,8 +1522,8 @@ export const VisualPickerCard = styled.button<{ $loaded?: boolean }>`
   }
 
   .image-visual-thumb img {
-    width: 100%;
-    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
     object-fit: contain;
     display: block;
   }

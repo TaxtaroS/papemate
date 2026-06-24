@@ -6,7 +6,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import {
   FiBarChart2,
-  FiChevronRight,
   FiCopy,
   FiFileText,
   FiUsers,
@@ -22,7 +21,6 @@ import {
   Container,
   SidebarSlot,
   SidebarHoverRail,
-  SidebarOpenButton,
   MainContent,
   TopAuth,
   MainDashboard,
@@ -588,17 +586,6 @@ function Home() {
         $visible={isSidebarCollapsed}
         onMouseEnter={() => setIsSidebarCollapsed(false)}
       />
-      <SidebarOpenButton
-        type="button"
-        $visible={isSidebarCollapsed}
-        $isFullView={isFullView}
-        onMouseEnter={() => setIsSidebarCollapsed(false)}
-        onClick={() => setIsSidebarCollapsed(false)}
-        aria-label="사이드바 열기"
-      >
-        <FiChevronRight />
-      </SidebarOpenButton>
-
       <SidebarSlot $collapsed={isSidebarCollapsed}>
         <Sidebar
           viewMode={viewMode}
