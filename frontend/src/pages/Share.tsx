@@ -19,7 +19,9 @@ import {
   ChatTimelineFeed,
   TalkBubble,
   FooterInputBox,
-  CoopPanelToggle,
+  MobileCoopButton,
+  MobileCoopOverlay,
+  MobileCoopPanel,
   VisualModalOverlay,
   VisualModalPanel,
   ProjectPickerOverlay,
@@ -434,7 +436,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
   const [imageDataUrls, setImageDataUrls] = useState({});
   const [selectedVisualAsset, setSelectedVisualAsset] = useState(null);
   const [isVisualPickerOpen, setIsVisualPickerOpen] = useState(false);
-  const [isCoopPanelCollapsed, setIsCoopPanelCollapsed] = useState(false);
+  const [isCoopPanelCollapsed, setIsCoopPanelCollapsed] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -1710,7 +1712,17 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     </ProjectPickerOverlay>
   );
 
-  // 페이지 전체 레이아웃: 모바일에서는 RightCoopPanel이 order:1로 위에, MainTimelineContent가 order:2로 아래에 표시됩니다.
+  const renderCoopPanelContent = () => (
+    <>
+      {renderCreateRoomBtn()}
+      {renderInviteCodeInput()}
+      {renderNoticeBox()}
+      {renderMembersBox()}
+      {renderChatTimelineFeed()}
+      {renderFooterInputBox()}
+    </>
+  );
+
   return (
     <Container>
       {isVisualPickerOpen && renderVisualPicker()}
@@ -1723,9 +1735,23 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
           {renderProjectLoadBar()}
           {activeProject && renderShareProjectCard()}
           {renderTimeline()}
-          {renderMembersBox()}
-          {renderChatTimelineFeed()}
-          {renderFooterInputBox()}
+          <MobileCoopButton type="button" onClick={() => setIsCoopPanelCollapsed(false)}>
+            협업 코멘트 열기
+            <span>{projectComments.length}</span>
+          </MobileCoopButton>
+          {!isCoopPanelCollapsed && (
+            <MobileCoopOverlay onClick={() => setIsCoopPanelCollapsed(true)}>
+              <MobileCoopPanel onClick={(event) => event.stopPropagation()}>
+                <div className="mobile-coop-header">
+                  <strong>협업 코멘트</strong>
+                  <button type="button" onClick={() => setIsCoopPanelCollapsed(true)} aria-label="협업 코멘트 닫기">
+                    ×
+                  </button>
+                </div>
+                {renderCoopPanelContent()}
+              </MobileCoopPanel>
+            </MobileCoopOverlay>
+          )}
         </>
       ) : (
         <>
@@ -1738,25 +1764,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
             </TimelineInner>
           </MainTimelineContent>
 
-          <CoopPanelToggle
-            type="button"
-            $collapsed={isCoopPanelCollapsed}
-            onClick={() => setIsCoopPanelCollapsed((prev) => !prev)}
-            aria-expanded={!isCoopPanelCollapsed}
-            aria-label={isCoopPanelCollapsed ? '협업 패널 열기' : '협업 패널 접기'}
-            title={isCoopPanelCollapsed ? '협업 패널 열기' : '협업 패널 접기'}
-          >
-            {isCoopPanelCollapsed ? '협업 열기' : '협업 접기'}
-          </CoopPanelToggle>
-
-          <RightCoopPanel $collapsed={isCoopPanelCollapsed}>
-            {renderCreateRoomBtn()}
-            {renderInviteCodeInput()}
-            {renderNoticeBox()}
-            {renderMembersBox()}
-            {renderChatTimelineFeed()}
-            {renderFooterInputBox()}
-          </RightCoopPanel>
+          <RightCoopPanel>{renderCoopPanelContent()}</RightCoopPanel>
         </>
       )}
     </Container>

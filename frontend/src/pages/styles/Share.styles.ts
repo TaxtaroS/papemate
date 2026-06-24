@@ -231,7 +231,7 @@ export const Container = styled.div`
     height: auto;
     min-height: 100dvh;
     overflow-y: auto;
-    padding: 16px;
+    padding: 16px 16px 82px 16px;
     gap: 16px;
 
     .header-area {
@@ -279,7 +279,7 @@ export const Container = styled.div`
   }
 
   @media (max-width: 760px) {
-    padding: 12px;
+    padding: 12px 12px 82px 12px;
     gap: 12px;
 
     .header-area {
@@ -294,7 +294,7 @@ export const Container = styled.div`
   }
 
   @media (max-width: 520px) {
-    padding: 8px;
+    padding: 8px 8px 78px 8px;
     gap: 10px;
 
     .code-row {
@@ -333,33 +333,89 @@ export const MainTimelineContent = styled.div`
   }
 `;
 
-export const CoopPanelToggle = styled.button<{ $collapsed?: boolean }>`
+export const MobileCoopButton = styled.button`
   position: fixed;
-  top: 50%;
-  right: ${(props) => (props.$collapsed ? '0' : '340px')};
-  z-index: 35;
-  transform: translateY(-50%);
-  width: 34px;
-  min-height: 94px;
-  border: 1px solid #cbd5e1;
-  border-right: none;
-  border-radius: 10px 0 0 10px;
-  background: #ffffff;
-  color: #334155;
-  writing-mode: vertical-rl;
-  font-size: 12px;
-  font-weight: 850;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 45;
+  width: auto;
+  margin: 0;
+  min-height: 46px;
+  border: 1px solid rgba(14, 165, 164, 0.28);
+  border-radius: 8px;
+  background: #0ea5a4;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 900;
+  box-shadow: 0 14px 32px rgba(14, 165, 164, 0.22);
   cursor: pointer;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
 
-  &:hover {
-    color: #0f766e;
-    border-color: #0ea5a4;
-    background: #f0fdfa;
+  span {
+    min-width: 24px;
+    height: 24px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.22);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+  }
+`;
+
+export const MobileCoopOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.42);
+`;
+
+export const MobileCoopPanel = styled.aside`
+  width: min(520px, 100%);
+  max-height: min(82vh, 720px);
+  border: 1px solid #dbe7f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+
+  .mobile-coop-header {
+    min-height: 52px;
+    padding: 0 14px 0 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #e2e8f0;
+    background: #ffffff;
   }
 
-  @media (max-width: 1000px) {
-    display: none;
+  .mobile-coop-header strong {
+    color: #0f172a;
+    font-size: 15px;
+    font-weight: 900;
+  }
+
+  .mobile-coop-header button {
+    width: 34px;
+    height: 34px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #475569;
+    font-size: 20px;
+    font-weight: 900;
+    cursor: pointer;
   }
 `;
 
@@ -740,8 +796,7 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
     font-weight: 600;
     line-height: 1.65;
     white-space: normal;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: visible;
     max-width: 100%;
   }
 
@@ -784,9 +839,9 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
   }
 
   .answer-fold .markdown-body table {
-    width: max-content;
-    min-width: 860px;
-    max-width: none;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     border-collapse: separate;
     border-spacing: 0;
     margin: 12px 0 16px 0;
@@ -794,12 +849,11 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
     border: 1px solid #dbe7f0;
     border-radius: 8px;
     overflow: hidden;
-    table-layout: auto;
+    table-layout: fixed;
   }
 
   .answer-fold .markdown-body th,
   .answer-fold .markdown-body td {
-    min-width: 180px;
     padding: 10px 14px;
     border-right: 1px solid #dbe7f0;
     border-bottom: 1px solid #dbe7f0;
@@ -807,13 +861,13 @@ export const TimelineNode = styled.article<{ $active?: boolean }>`
     vertical-align: top;
     white-space: normal;
     word-break: keep-all;
-    overflow-wrap: break-word;
+    overflow-wrap: anywhere;
+    hyphens: auto;
   }
 
   .answer-fold .markdown-body th:first-child,
   .answer-fold .markdown-body td:first-child {
-    min-width: 110px;
-    width: 110px;
+    width: 18%;
   }
 
   .answer-fold .markdown-body th {
@@ -1212,7 +1266,7 @@ export const VisualModalPanel = styled.div`
   }
 `;
 
-export const RightCoopPanel = styled.aside<{ $collapsed?: boolean }>`
+export const RightCoopPanel = styled.aside`
   width: 340px;
   background: #f8fafc;
   border-left: 1px solid #e2e8f0;
@@ -1222,22 +1276,6 @@ export const RightCoopPanel = styled.aside<{ $collapsed?: boolean }>`
   flex: 0 0 340px;
   min-height: 0;
   order: 2;
-  transform: ${(props) => (props.$collapsed ? 'translateX(100%)' : 'translateX(0)')};
-  margin-right: ${(props) => (props.$collapsed ? '-340px' : '0')};
-  transition: transform 0.22s ease, margin-right 0.22s ease;
-
-  @media (max-width: 1000px) {
-    order: 1;
-    width: 100%;
-    flex: none;
-    min-height: auto;
-    max-height: none;
-    border-left: none;
-    border-bottom: 1px solid #e2e8f0;
-    margin-right: 0;
-    transform: none;
-    overflow: visible;
-  }
 `;
 
 export const MembersBox = styled.div`
