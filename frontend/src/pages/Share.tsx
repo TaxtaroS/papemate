@@ -144,6 +144,14 @@ const getNumericOrder = (value, fallback = 0) => {
   return fallback;
 };
 
+const getNextTimelineOrder = (assets = []) => {
+  const maxOrder = asArray(assets).reduce(
+    (max, asset) => Math.max(max, getNumericOrder(asset?.timelineOrder || asset?.createdAt || asset?.date || asset?.time || asset?.id)),
+    0
+  );
+  return Math.max(Date.now(), maxOrder + 1);
+};
+
 const isGraphRequestBetter = (text = '') => /그래프|차트|막대|꺾은선|선\s*그래프|graph|chart|line|bar/i.test(String(text));
 
 const looksLikeTimeSeries = (xAxisKey, data = []) => {
@@ -247,10 +255,55 @@ const getImageVisualItem = (visual: any = {}) => {
   return asArray(visual.items).find((item) => item?.dataUrl || item?.previewText || item?.ocrText || item?.tableText) || null;
 };
 
+const getVisualPayloadScore = (visual: any = {}) =>
+  asArray(visual.data).length * 4 +
+  asArray(visual.rows).length * 3 +
+  asArray(visual.columns).length * 2 +
+  asArray(visual.series).length * 2 +
+  asArray(visual.details).length +
+  asArray(visual.items).reduce((score, item) => score + (item?.dataUrl ? 4 : item?.previewText || item?.ocrText || item?.tableText ? 2 : 1), 0);
+
+const mergeVisualForShare = (baseVisual: any = {}, incomingVisual: any = {}) => {
+  const baseScore = getVisualPayloadScore(baseVisual);
+  const incomingScore = getVisualPayloadScore(incomingVisual);
+  const preferred = incomingScore > baseScore ? incomingVisual : baseVisual;
+  const secondary = preferred === incomingVisual ? baseVisual : incomingVisual;
+
+  return {
+    ...secondary,
+    ...preferred,
+    items: asArray(preferred.items).length ? preferred.items : secondary.items,
+    data: asArray(preferred.data).length ? preferred.data : secondary.data,
+    rows: asArray(preferred.rows).length ? preferred.rows : secondary.rows,
+    columns: asArray(preferred.columns).length ? preferred.columns : secondary.columns,
+    series: asArray(preferred.series).length ? preferred.series : secondary.series,
+    details: asArray(preferred.details).length ? preferred.details : secondary.details,
+  };
+};
+
+const mergeVisualsForShare = (baseVisuals = [], incomingVisuals = []) => {
+  const merged = [];
+  const indexById = new Map();
+
+  [...asArray(baseVisuals), ...asArray(incomingVisuals)].forEach((visual) => {
+    if (!visual?.id) return;
+    const visualId = normalizeVisualId(visual.id) || String(visual.id);
+    const existingIndex = indexById.get(visualId);
+    if (existingIndex === undefined) {
+      indexById.set(visualId, merged.length);
+      merged.push(visual);
+      return;
+    }
+    merged[existingIndex] = mergeVisualForShare(merged[existingIndex], visual);
+  });
+
+  return merged;
+};
+
 const mergeProjectForShare = (baseProject: any = {}, incomingProject: any = {}) => {
   const baseVisuals = asArray(baseProject.visuals);
   const incomingVisuals = asArray(incomingProject.visuals);
-  const preferredVisuals = incomingVisuals.length > baseVisuals.length ? incomingVisuals : baseVisuals;
+  const preferredVisuals = mergeVisualsForShare(baseVisuals, incomingVisuals);
   const preferredThread = asArray(incomingProject.thread).length > asArray(baseProject.thread).length
     ? incomingProject.thread
     : baseProject.thread;
@@ -418,7 +471,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     const entries = asArray(room.importedVisuals)
       .map((item, index) => [
         normalizeVisualId(item?.id || item?.visualId),
-        getNumericOrder(item?.importedAt || item?.time || item?.id, index + 1),
+        getNumericOrder(item?.timelineOrder || item?.importedAt || item?.time || item?.id, index + 1),
       ])
       .filter(([id]) => id);
     return new Map(entries as [string, number][]);
@@ -522,17 +575,21 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     const orphanVisuals = asArray(project.visuals)
       .filter((visual) => {
         const visualId = normalizeVisualId(visual.id);
+        if (sourceType === 'main' && importedVisualIdSet.has(visualId)) return true;
         if (visualIdsFromThread.has(visualId)) return false;
         if (sourceType !== 'main') return true;
         return importedVisualIdSet.has(visualId);
       })
       .map((visual) => ({
         ...visual,
-        id: visual.id,
+        id: sourceType === 'main' && importedVisualIdSet.has(normalizeVisualId(visual.id))
+          ? `imported-${visual.id}`
+          : visual.id,
+        originalVisualId: visual.id,
         type: 'visual',
         kind: visual.kind || visual.type || 'chart',
         title: visual.title || '시각화 자료',
-        text: visual.desc || '분석 페이지에서 저장된 시각화 자료입니다.',
+        text: visual.desc || '프로젝트 시각화 보관함에서 불러온 자료입니다.',
         details: visual.details || [],
         rows: visual.rows,
         timelineOrder: importedVisualOrderMap.get(normalizeVisualId(visual.id)) || getNumericOrder(visual.createdAt || visual.date || visual.time || visual.id),
@@ -884,6 +941,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     if (!activeProject || !visual?.id) return;
     const visualId = normalizeVisualId(visual.id);
     const alreadyImported = importedVisualIdSet.has(visualId);
+    const timelineOrder = getNextTimelineOrder(projectAssets);
 
     setRoom((prev) => ({
       ...prev,
@@ -898,6 +956,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
               visualId,
               projectId: activeProject.id,
               importedAt: Date.now(),
+              timelineOrder,
             },
           ],
     }));
