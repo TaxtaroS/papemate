@@ -34,6 +34,7 @@ import {
 } from '../utils/storageKeys';
 import { projectAPI } from '../services/api';
 import { VisualArtifact } from './styles/AnalysisLocal.styles';
+import { putSharedImage } from '../utils/imageStore';
 
 const MAX_PROJECTS = 10;
 const MAX_VISUALS = 50;
@@ -305,6 +306,34 @@ const legacyDummyProjectTitles = [
 ];
 
 const asArray = (value) => (Array.isArray(value) ? value : []);
+const normalizeVisualId = (id) => String(id || '').replace(/^(thread-|visual-|saved-)+/, '');
+
+const getNumericOrder = (value, fallback = 0) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const parsedDate = Date.parse(String(value || ''));
+  if (Number.isFinite(parsedDate)) return parsedDate;
+  const digits = String(value || '').match(/\d{6,}/g);
+  if (digits?.length) return Number(digits[digits.length - 1]);
+  return fallback;
+};
+
+const getNextTimelineOrder = (items = []) => {
+  const maxOrder = asArray(items).reduce(
+    (max, item) => Math.max(max, getNumericOrder(item?.timelineOrder || item?.importedAt || item?.createdAt || item?.date || item?.time || item?.id)),
+    0
+  );
+  return Math.max(Date.now(), maxOrder + 1);
+};
+
+const getVisualImageStoreKeys = (visual: any = {}, item: any = {}, index = 0) =>
+  Array.from(new Set([
+    item?.id,
+    item?.imageId,
+    visual?.id && item?.id ? `${visual.id}:${item.id}` : '',
+    visual?.id && item?.source ? `${visual.id}:${item.source}` : '',
+    visual?.id && item?.name ? `${visual.id}:${item.name}` : '',
+    visual?.id ? `${visual.id}:item-${index}` : '',
+  ].map((value) => String(value || '').trim()).filter(Boolean)));
 
 const sanitizeProjects = (projects) =>
   asArray(projects).filter((project) => project && !legacyDummyProjectTitles.includes(project.title));
@@ -711,6 +740,88 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
     setLimitNotice('');
   };
 
+  const handleSendVisualToShare = async (visual) => {
+    if (!visual?.id) return;
+    const sourceProject = asArray(projects).find((project) => project.id === visual.projectId) || asArray(projects)[0];
+    if (!sourceProject) {
+      window.alert('공유작업공간으로 보낼 프로젝트를 찾지 못했습니다.');
+      return;
+    }
+
+    const inviteCode = sourceProject.inviteCode || createInviteCode();
+    const projectWithInvite = sourceProject.inviteCode ? sourceProject : { ...sourceProject, inviteCode };
+    const currentVisuals = asArray(projectWithInvite.visuals);
+    const visualId = normalizeVisualId(visual.id);
+    const importedAt = Date.now();
+    const roomKey = getSharedRoomKey(inviteCode);
+    const savedRoom = readJson(roomKey, null);
+    const timelineOrder = getNextTimelineOrder([
+      ...asArray(savedRoom?.importedVisuals),
+      ...asArray(projectWithInvite.thread),
+      ...asArray(projectWithInvite.discussionImages),
+    ]);
+
+    await Promise.all(
+      asArray(visual.items).flatMap((item, index) =>
+        item?.dataUrl
+          ? getVisualImageStoreKeys(visual, item, index).map((key) => putSharedImage(key, item.dataUrl))
+          : []
+      )
+    );
+
+    const nextProjects = asArray(projects).map((project) =>
+      project.id === projectWithInvite.id
+        ? {
+            ...projectWithInvite,
+            visuals: currentVisuals.map((item) => (item.id === visual.id ? { ...item, ...visual } : item)),
+          }
+        : project
+    );
+    commitProjects(nextProjects);
+
+    const previousRoom = savedRoom || {
+      inviteCode,
+      joinedCode: inviteCode,
+      mainProjectId: projectWithInvite.id,
+      loadedProjectIds: [],
+      importedVisualIds: [],
+      importedVisuals: [],
+      members: [],
+      comments: [],
+    };
+    const nextImportedVisuals = [
+      ...asArray(previousRoom.importedVisuals).filter((item) => normalizeVisualId(item?.id || item?.visualId) !== visualId),
+      {
+        id: visual.id,
+        visualId,
+        projectId: projectWithInvite.id,
+        importedAt,
+        timelineOrder,
+      },
+    ];
+    const nextRoom = {
+      ...previousRoom,
+      inviteCode,
+      joinedCode: inviteCode,
+      mainProjectId: projectWithInvite.id,
+      loadedProjectIds: Array.from(new Set([...asArray(previousRoom.loadedProjectIds), projectWithInvite.id])),
+      importedVisualIds: Array.from(new Set([...asArray(previousRoom.importedVisualIds), visual.id, visualId])),
+      importedVisuals: nextImportedVisuals,
+      comments: asArray(previousRoom.comments),
+      members: asArray(previousRoom.members),
+    };
+
+    writeJson(roomKey, nextRoom);
+    writeJson(getShareRoomKey(), nextRoom);
+    setSelectedVisual(null);
+    setExpandedVisual(null);
+    onShareProjectOpen?.({
+      projectId: projectWithInvite.id,
+      projectTitle: projectWithInvite.title,
+      inviteCode,
+    });
+  };
+
   const renderVisualPreview = (visual, isDrawer = false) => {
     const imageItem = getImageVisualItem(visual);
     if (!isDrawer && imageItem) {
@@ -951,8 +1062,8 @@ function Projects({ onProjectRestore, onShareProjectOpen }) {
               </div>
             </div>
             <div className="drawer-footer">
-              <button type="button" className="action-btn" onClick={() => downloadVisualReportData(selectedVisual)}>
-                보고서 데이터 다운로드
+              <button type="button" className="action-btn" onClick={() => handleSendVisualToShare(selectedVisual)}>
+                공유작업
               </button>
               <button type="button" className="action-btn" onClick={() => downloadVisualReportPng(selectedVisual)}>
                 PNG로 다운로드
