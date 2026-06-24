@@ -55,6 +55,14 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def log_request_time(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration = time.time() - start
+    print(f"⏱ {request.method} {request.url.path} → {response.status_code} ({duration:.3f}s)")
+    return response
+
 # CORS는 프론트엔드 주소에서 백엔드 API를 호출할 수 있게 허용하는 설정입니다.
 app.add_middleware(
     CORSMiddleware,
