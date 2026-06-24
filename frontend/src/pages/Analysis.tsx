@@ -34,6 +34,7 @@ import {
   upsertSharedProjectIndex,
   writeJson,
 } from '../utils/storageKeys';
+import { putSharedImage } from '../utils/imageStore';
 
 const MAX_PROJECTS = 10;
 const MAX_VISUALS = 50;
@@ -43,6 +44,15 @@ const MAX_SUGGESTED_FOLLOWUP_DEPTH = 3;
 const visualStorageKinds = new Set(['table', 'graph', 'image', 'chart']);
 const isVisualStorageItem = (visual) => visualStorageKinds.has(visual?.kind) || visualStorageKinds.has(visual?.type);
 const normalizeVisualId = (id) => String(id || '').replace(/^(thread-|visual-|saved-)+/, '');
+const getVisualImageStoreKeys = (visual: any = {}, item: any = {}, index = 0) =>
+  Array.from(new Set([
+    item?.id,
+    item?.imageId,
+    visual?.id && item?.id ? `${visual.id}:${item.id}` : '',
+    visual?.id && item?.source ? `${visual.id}:${item.source}` : '',
+    visual?.id && item?.name ? `${visual.id}:${item.name}` : '',
+    visual?.id ? `${visual.id}:item-${index}` : '',
+  ].map((value) => String(value || '').trim()).filter(Boolean)));
 const isSuggestedVisualQuestion = (question = '') => String(question || '').includes('추천 시각화');
 const suggestionChipClass = (question = '') =>
   `suggested-chip${isSuggestedVisualQuestion(question) ? ' visual' : ' related'}`;
@@ -1632,6 +1642,13 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
         savedAt,
         updatedAt: savedAt,
       };
+      await Promise.all(
+        (Array.isArray(savedAsset.items) ? savedAsset.items : []).flatMap((item, index) =>
+          item?.dataUrl
+            ? getVisualImageStoreKeys(savedAsset, item, index).map((key) => putSharedImage(key, item.dataUrl))
+            : []
+        )
+      );
       const projectRecord = buildProjectRecord(title.trim(), existingProject);
       const previouslySavedVisuals = Array.isArray(existingProject?.visuals)
         ? existingProject.visuals.filter(isVisualStorageItem)

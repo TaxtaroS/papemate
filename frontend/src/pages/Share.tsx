@@ -252,7 +252,34 @@ const hasTimelineAssetContent = (asset: any = {}) => {
 
 const getImageVisualItem = (visual: any = {}) => {
   if (!imageVisualKinds.has(visual.kind || visual.type)) return null;
-  return asArray(visual.items).find((item) => item?.dataUrl || item?.previewText || item?.ocrText || item?.tableText) || null;
+  return asArray(visual.items).find((item) => item?.dataUrl || item?.hasImage || item?.previewText || item?.ocrText || item?.tableText) || null;
+};
+
+const getVisualImageStoreKeys = (visual: any = {}, item: any = {}, index = 0) =>
+  Array.from(new Set([
+    item?.id,
+    item?.imageId,
+    visual?.id && item?.id ? `${visual.id}:${item.id}` : '',
+    visual?.originalVisualId && item?.id ? `${visual.originalVisualId}:${item.id}` : '',
+    visual?.id && item?.source ? `${visual.id}:${item.source}` : '',
+    visual?.originalVisualId && item?.source ? `${visual.originalVisualId}:${item.source}` : '',
+    visual?.id && item?.name ? `${visual.id}:${item.name}` : '',
+    visual?.originalVisualId && item?.name ? `${visual.originalVisualId}:${item.name}` : '',
+    visual?.id ? `${visual.id}:item-${index}` : '',
+    visual?.originalVisualId ? `${visual.originalVisualId}:item-${index}` : '',
+  ].map((value) => String(value || '').trim()).filter(Boolean)));
+
+const getVisualImageDataUrl = (visual: any = {}, item: any = {}, index = 0, imageMap: Record<string, string> = {}) =>
+  item?.dataUrl || getVisualImageStoreKeys(visual, item, index).map((key) => imageMap[key]).find(Boolean) || '';
+
+const hydrateVisualImageItems = (visual: any = {}, imageMap: Record<string, string> = {}) => {
+  const items = asArray(visual.items);
+  if (!items.length) return visual;
+  const hydratedItems = items.map((item, index) => {
+    const dataUrl = getVisualImageDataUrl(visual, item, index, imageMap);
+    return dataUrl && !item.dataUrl ? { ...item, dataUrl } : item;
+  });
+  return { ...visual, items: hydratedItems };
 };
 
 const getVisualPayloadScore = (visual: any = {}) =>
@@ -477,8 +504,10 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
     return new Map(entries as [string, number][]);
   }, [room.importedVisuals]);
   const activeProjectVisuals = useMemo(
-    () => asArray(activeProject?.visuals).filter((visual) => visual?.id && hasVisualPayload(visual)),
-    [activeProject?.visuals]
+    () => asArray(activeProject?.visuals)
+      .map((visual) => hydrateVisualImageItems(visual, imageDataUrls))
+      .filter((visual) => visual?.id && hasVisualPayload(visual)),
+    [activeProject?.visuals, imageDataUrls]
   );
   const sortedMembers = useMemo(() => {
     const members = asArray(room.members);
@@ -580,23 +609,26 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
         if (sourceType !== 'main') return true;
         return importedVisualIdSet.has(visualId);
       })
-      .map((visual) => ({
-        ...visual,
-        id: sourceType === 'main' && importedVisualIdSet.has(normalizeVisualId(visual.id))
-          ? `imported-${visual.id}`
-          : visual.id,
-        originalVisualId: visual.id,
-        type: 'visual',
-        kind: visual.kind || visual.type || 'chart',
-        title: visual.title || '시각화 자료',
-        text: visual.desc || '프로젝트 시각화 보관함에서 불러온 자료입니다.',
-        details: visual.details || [],
-        rows: visual.rows,
-        timelineOrder: importedVisualOrderMap.get(normalizeVisualId(visual.id)) || getNumericOrder(visual.createdAt || visual.date || visual.time || visual.id),
-        projectId: project.id,
-        projectTitle: project.title,
-        sourceType,
-      }));
+      .map((visual) => {
+        const originalVisualId = visual.id;
+        return hydrateVisualImageItems({
+          ...visual,
+          id: sourceType === 'main' && importedVisualIdSet.has(normalizeVisualId(originalVisualId))
+            ? `imported-${originalVisualId}`
+            : originalVisualId,
+          originalVisualId,
+          type: 'visual',
+          kind: visual.kind || visual.type || 'chart',
+          title: visual.title || '시각화 자료',
+          text: visual.desc || '프로젝트 시각화 보관함에서 불러온 자료입니다.',
+          details: visual.details || [],
+          rows: visual.rows,
+          timelineOrder: importedVisualOrderMap.get(normalizeVisualId(originalVisualId)) || getNumericOrder(visual.createdAt || visual.date || visual.time || originalVisualId),
+          projectId: project.id,
+          projectTitle: project.title,
+          sourceType,
+        }, imageDataUrls);
+      });
 
     return [...threadItems, ...orphanVisuals, ...images].filter(hasTimelineAssetContent);
   }, [imageDataUrls, importedVisualIdSet, importedVisualOrderMap]);
@@ -772,11 +804,21 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
   }, [projectAssets.length, room.loadedProjectIds, room.importedVisualIds]);
 
   useEffect(() => {
-    const imagesWithData = allProjects.flatMap((project) =>
+    const discussionImagesWithData = allProjects.flatMap((project) =>
       asArray(project.discussionImages)
         .filter((image) => image?.id && image?.dataUrl)
         .map((image) => ({ id: image.id, dataUrl: image.dataUrl }))
     );
+    const visualImagesWithData = allProjects.flatMap((project) =>
+      asArray(project.visuals).flatMap((visual) =>
+        asArray(visual.items).flatMap((item, index) =>
+          item?.dataUrl
+            ? getVisualImageStoreKeys(visual, item, index).map((id) => ({ id, dataUrl: item.dataUrl }))
+            : []
+        )
+      )
+    );
+    const imagesWithData = [...discussionImagesWithData, ...visualImagesWithData];
     if (imagesWithData.length === 0) return;
 
     Promise.all(imagesWithData.map((image) => putSharedImage(image.id, image.dataUrl))).catch(() => {
@@ -785,14 +827,27 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
   }, [allProjects]);
 
   useEffect(() => {
-    const missingImages = projectAssets.filter(
+    const missingDiscussionImages = projectAssets.filter(
       (asset) => asset.type === 'image' && !asset.dataUrl && asset.id && !imageDataUrls[asset.id]
     );
+    const missingVisualImageKeys = projectAssets.flatMap((asset) =>
+      asset.type === 'visual'
+        ? asArray(asset.items).flatMap((item, index) =>
+            item?.dataUrl
+              ? []
+              : getVisualImageStoreKeys(asset, item, index).filter((key) => !imageDataUrls[key])
+          )
+        : []
+    );
+    const missingImages = [
+      ...missingDiscussionImages.map((asset) => asset.id),
+      ...Array.from(new Set(missingVisualImageKeys)),
+    ].filter(Boolean);
     if (missingImages.length === 0) return;
 
     let cancelled = false;
     Promise.all(
-      missingImages.map(async (asset) => [asset.id, await getSharedImage(asset.id)])
+      missingImages.map(async (id) => [id, await getSharedImage(id)])
     ).then((entries) => {
       if (cancelled) return;
       const foundImages = Object.fromEntries(entries.filter(([, dataUrl]) => dataUrl));
@@ -1252,13 +1307,14 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
   };
 
   const renderVisualPreview = (asset) => {
-    const imageItem = getImageVisualItem(asset);
+    const hydratedAsset = hydrateVisualImageItems(asset, imageDataUrls);
+    const imageItem = getImageVisualItem(hydratedAsset);
     if (imageItem) {
-      const previewText = imageItem.previewText || imageItem.ocrText || imageItem.tableText || asset.desc || asset.text || '';
+      const previewText = imageItem.previewText || imageItem.ocrText || imageItem.tableText || hydratedAsset.desc || hydratedAsset.text || '';
       return (
         <div className="image-visual-thumb">
           {imageItem.dataUrl ? (
-            <img src={imageItem.dataUrl} alt={imageItem.name || asset.title || '추출 이미지'} />
+            <img src={imageItem.dataUrl} alt={imageItem.name || hydratedAsset.title || '추출 이미지'} />
           ) : (
             <span>{previewText || '이미지 미리보기'}</span>
           )}
@@ -1266,10 +1322,10 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
       );
     }
 
-    if (asset.data || asset.columns || asset.series || ['chart', 'table', 'mindmap'].includes(asset.kind || asset.type)) {
-      return <DynamicVisualizer config={asset} fallbackTitle={asset.title} />;
+    if (hydratedAsset.data || hydratedAsset.columns || hydratedAsset.series || ['chart', 'table', 'mindmap'].includes(hydratedAsset.kind || hydratedAsset.type)) {
+      return <DynamicVisualizer config={hydratedAsset} fallbackTitle={hydratedAsset.title} />;
     }
-    if (asset.kind === 'table') {
+    if (hydratedAsset.kind === 'table') {
       return (
         <div className="mini-visual table">
           <span></span><span></span><span></span>
@@ -1278,7 +1334,7 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
         </div>
       );
     }
-    if (asset.kind === 'graph') {
+    if (hydratedAsset.kind === 'graph') {
       return (
         <div className="mini-visual graph">
           <i></i><i></i><i></i><i></i>
@@ -1582,7 +1638,10 @@ function ShareC({ onRestoreTrigger, username = 'Guest', initialProject = null })
           <button type="button" onClick={() => setSelectedVisualAsset(null)} aria-label="닫기">×</button>
         </div>
         <div className="modal-body">
-          <DynamicVisualizer config={selectedVisualAsset} fallbackTitle={selectedVisualAsset.title} />
+          <DynamicVisualizer
+            config={hydrateVisualImageItems(selectedVisualAsset, imageDataUrls)}
+            fallbackTitle={selectedVisualAsset.title}
+          />
         </div>
       </VisualModalPanel>
     </VisualModalOverlay>
