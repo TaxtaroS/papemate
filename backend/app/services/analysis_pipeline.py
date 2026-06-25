@@ -26,24 +26,38 @@ from .web_search import search_results_to_docs, wants_web_search, web_search
 def _is_visual_request(question: str) -> bool:
     """질문이 차트/표/시각화 JSON을 원하는지 빠르게 판별합니다."""
 
-    text = (question or "").lower()
-    return any(
-        keyword in text
-        for keyword in (
-            "그래프",
-            "차트",
-            "표",
-            "시각화",
-            "추이",
-            "그려",
-            "그려줘",
-            "만들어",
-            "chart",
-            "graph",
-            "table",
-            "visual",
-            "json",
-        )
+    text = re.sub(r"\s+", "", (question or "").lower())
+    if not text:
+        return False
+
+    visual_nouns = (
+        "그래프",
+        "차트",
+        "시각화",
+        "표로",
+        "테이블",
+        "chart",
+        "graph",
+        "table",
+        "visual",
+        "json",
+    )
+    action_words = (
+        "그려",
+        "만들",
+        "생성",
+        "정리",
+        "보여",
+        "해줘",
+        "줘",
+        "create",
+        "make",
+        "draw",
+        "show",
+    )
+
+    return any(noun in text for noun in visual_nouns) and any(
+        action in text for action in action_words
     )
 
 
@@ -487,23 +501,6 @@ def run_analysis_pipeline(
             web_docs=web_docs,
             llm_error=reason,
         )
-
-    if visual_config:
-        return {
-            **fallback_answer,
-            "answer": json.dumps(visual_config, ensure_ascii=False),
-            "keywords": fallback_answer.get("keywords", []),
-            "metrics": fallback_answer.get("metrics", []),
-            "topics": fallback_answer.get("topics", []),
-            "relevant_chunks": fallback_answer.get("relevant_chunks", []),
-            "intent": fallback_answer.get("intent", "시각화"),
-            "llm_used": True,
-            "llm_key_received": llm_key_received,
-            "llm_key_source": llm_key_source,
-            "provider": llm_answer.get("provider"),
-            "model": llm_answer.get("model"),
-            "suggested_questions": llm_answer.get("suggested_questions", []),
-        }
 
     return _llm_first_payload(
         fallback_answer=fallback_answer,

@@ -352,6 +352,29 @@ const getLatestAnalysisText = (messages) => {
   return latest?.text || '';
 };
 
+const extractAnswerText = (data, fallback = '') => {
+  const payload = data && typeof data === 'object' ? data : {};
+  const nestedPayload = payload.data && typeof payload.data === 'object' ? payload.data : {};
+  const candidates = [
+    payload.answer,
+    payload.summary,
+    payload.analysis,
+    payload.result,
+    payload.content,
+    payload.message,
+    nestedPayload.answer,
+    nestedPayload.summary,
+    nestedPayload.analysis,
+    nestedPayload.result,
+    nestedPayload.content,
+    nestedPayload.message,
+  ];
+  const text = candidates
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .find(Boolean);
+  return text || fallback;
+};
+
 const BRACKET_EVIDENCE_SECTION_PATTERN = /(\[(?:수치 후보|관련 문서 구간|문서별 핵심 근거)\])/g;
 const COLLAPSIBLE_HEADING_PATTERN =
   /^#{1,6}\s*(핵심\s*해석|상세\s*분석|근거|시사점|주의(?:할\s*)?점|문서\s*구조|문서별\s*핵심\s*근거|관련\s*문서\s*구간|수치\s*후보|공통점|차이점|활용\s*관점|비교표|결론|요약).*$/im;
@@ -460,6 +483,17 @@ const parseVisualJsonFromAnswer = (text = '') => {
   }
 
   return null;
+};
+
+const isExplicitVisualRequestText = (text = '') => {
+  const compact = String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  if (!compact) return false;
+
+  const hasVisualNoun = /(그래프|차트|시각화|표로|테이블|chart|graph|table|visual|json)/i.test(compact);
+  const hasAction = /(그려|만들|생성|정리|보여|해줘|줘|create|make|draw|show)/i.test(compact);
+  return hasVisualNoun && hasAction;
 };
 
 const EvidenceMarkdown = ({ text }) => {
@@ -1363,7 +1397,11 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
           ? `\n\n분석 엔진: PaperMate (${providerLabelMap[response.data.provider] || response.data.provider}) · ${analysisDurationNote}`
           : `\n\n분석 엔진: 로컬 기본 분석 · ${analysisDurationNote}`
         : `\n\n${analysisDurationNote}`;
-      const answer = response.data?.answer || response.data?.summary || buildLocalFallbackAnswer(question, pendingFiles, messages);
+      const answer = extractAnswerText(
+        response.data,
+        buildLocalFallbackAnswer(question, pendingFiles, messages),
+      );
+      const visualRequest = isExplicitVisualRequestText(question);
       const successMessage = hasNewUpload
         ? { id: `upload-success-${Date.now()}`, role: 'system', text: `파일 전송 성공: ${uploadedFileNames}`, createdAt: nowIso() }
         : null;
@@ -1375,12 +1413,34 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
       let isJsonAsset = false;
       try {
         parsedAssetData = parseVisualJsonFromAnswer(answer);
-        if (parsedAssetData) {
+        if (
+          visualRequest &&
+          parsedAssetData &&
+          !Array.isArray(parsedAssetData) &&
+          hasVisualPayload(parsedAssetData)
+        ) {
           isJsonAsset = true;
         }
       } catch (e) {
         // Not valid JSON
       }
+      const answerText =
+        !visualRequest &&
+        parsedAssetData &&
+        !Array.isArray(parsedAssetData) &&
+        hasVisualPayload(parsedAssetData)
+          ? extractAnswerText(
+              {
+                summary: response.data?.summary,
+                analysis: response.data?.analysis,
+                result: response.data?.result,
+                content: response.data?.content,
+                message: response.data?.message,
+                data: response.data?.data,
+              },
+              buildLocalFallbackAnswer(question, pendingFiles, messages),
+            )
+          : answer;
 
       const messagesWithAnswer = [
         ...messagesWithQuestion,
@@ -1408,7 +1468,7 @@ function AnalysisC({ projectId, projectTitle, restoredData, newAnalysisSignal, c
           return visualId && !prev.includes(visualId) ? [visualId, ...prev] : prev;
         });
       } else {
-        messagesWithAnswer.push({ id: `ai-${Date.now()}`, role: 'ai', text: `${answer}${providerNote}`, createdAt: nowIso(), suggestedDepth, suggestedQuestions });
+        messagesWithAnswer.push({ id: `ai-${Date.now()}`, role: 'ai', text: `${answerText}${providerNote}`, createdAt: nowIso(), suggestedDepth, suggestedQuestions });
       }
 
       setMessages(messagesWithAnswer);
